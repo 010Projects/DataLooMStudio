@@ -6,10 +6,11 @@
 
 - Repository URL: `https://github.com/010Projects/DataLooMStudio`
 - Implementation branch: `feature/dls-inc-001-evidence-registration`
-- Commit SHA: pending branch publication.
-- Pull request reference: pending branch publication.
+- Implementation commit SHA: `078d584076f8e69cad9613586623c86307546c5a`
+- Pull request reference: `https://github.com/010Projects/DataLooMStudio/pull/1`
 - Merge status: not merged.
-- CI result: pending branch publication.
+- CI result for implementation commit: PASS.
+- CI run: `https://github.com/010Projects/DataLooMStudio/actions/runs/31112727806`
 
 ## Changed-File Summary
 
