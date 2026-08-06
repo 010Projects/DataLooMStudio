@@ -473,9 +473,16 @@ public sealed class FoundationArchitectureTests
             .Descendants(projectReferenceName)
             .Select(element => element.Attribute("Include")?.Value)
             .Where(include => !string.IsNullOrWhiteSpace(include))
-            .Select(include => Path.GetFullPath(Path.Combine(projectDirectory, include!)))
+            .Select(include => Path.GetFullPath(Path.Combine(projectDirectory, NormalizeProjectPath(include!))))
             .Order(StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private static string NormalizeProjectPath(string path)
+    {
+        return path
+            .Replace('\\', Path.DirectorySeparatorChar)
+            .Replace('/', Path.DirectorySeparatorChar);
     }
 
     private static IReadOnlyList<string> GetPackageReferences(string projectPath)
