@@ -68,6 +68,7 @@ app.UseMiddleware<TenantWorkspaceContextMiddleware>();
 app.UseAuthorization();
 
 app.MapFoundationEndpoints();
+app.MapEvidenceEndpoints();
 app.MapHealthChecks("/readyz");
 
 app.Run();

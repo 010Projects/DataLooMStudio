@@ -161,9 +161,12 @@ public sealed class DataLooMDbContext(
         builder.Property(evidence => evidence.ContentType).HasMaxLength(255).IsRequired();
         builder.Property(evidence => evidence.Sha256Hash).HasMaxLength(64).IsRequired();
         builder.Property(evidence => evidence.RetentionPolicyKey).HasMaxLength(128).IsRequired();
+        builder.Property(evidence => evidence.RegistrationIdempotencyKey).HasMaxLength(128).IsRequired();
+        builder.Property(evidence => evidence.RegistrationRequestHash).HasMaxLength(64).IsRequired();
         builder.Property(evidence => evidence.ConcurrencyToken).IsConcurrencyToken();
         ConfigureWorkspaceScope(builder);
         builder.HasIndex(evidence => new { evidence.TenantId, evidence.WorkspaceId, evidence.LineageId }).IsUnique();
+        builder.HasIndex(evidence => new { evidence.TenantId, evidence.WorkspaceId, evidence.RegistrationIdempotencyKey }).IsUnique();
         builder.HasIndex(evidence => new { evidence.TenantId, evidence.WorkspaceId, evidence.Sha256Hash });
 
         evidenceVersion.ToTable("evidence_versions", "evidence");

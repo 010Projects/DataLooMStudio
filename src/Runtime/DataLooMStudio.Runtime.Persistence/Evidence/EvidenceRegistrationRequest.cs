@@ -8,4 +8,5 @@ public sealed record EvidenceRegistrationRequest(
     long DeclaredSize,
     string ContentHash,
     string StorageObjectReference,
-    string RetentionPolicyKey);
+    string RetentionPolicyKey,
+    string? IdempotencyKey = null);

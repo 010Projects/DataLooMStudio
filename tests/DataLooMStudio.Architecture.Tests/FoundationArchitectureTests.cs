@@ -148,6 +148,50 @@ public sealed class FoundationArchitectureTests
     }
 
     [Fact]
+    public void Api_evidence_endpoint_must_not_bypass_application_or_persistence_boundaries()
+    {
+        var evidenceEndpoint = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Api",
+            "DataLooMStudio.Api",
+            "Endpoints",
+            "EvidenceEndpoints.cs");
+        var apiSource = new[]
+            {
+                evidenceEndpoint
+            }
+            .Select(file => new
+            {
+                File = file,
+                Source = File.ReadAllText(file)
+            })
+            .ToArray();
+        var forbiddenTokens = new[]
+        {
+            "DataLooMDbContext",
+            "DbSet<",
+            "Database.",
+            "AzureEvidenceBlobStore",
+            "BlobClient",
+            "BlobServiceClient"
+        };
+        var violations = apiSource
+            .Select(file => new
+            {
+                file.File,
+                Tokens = forbiddenTokens
+                    .Where(token => file.Source.Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
     public void Distinct_worker_runtime_must_not_depend_on_api_or_migration_runtime()
     {
         var workerProject = Path.Combine(
@@ -302,6 +346,50 @@ public sealed class FoundationArchitectureTests
             .ToArray();
 
         Assert.Empty(contextOwners);
+    }
+
+    [Fact]
+    public void Runtime_persistence_must_not_take_blob_or_ai_execution_dependencies()
+    {
+        var persistenceProject = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Runtime",
+            "DataLooMStudio.Runtime.Persistence",
+            "DataLooMStudio.Runtime.Persistence.csproj");
+        var forbiddenPackagePrefixes = new[]
+        {
+            "Azure.Storage.Blobs",
+            "Azure.AI",
+            "OpenAI",
+            "Microsoft.SemanticKernel"
+        };
+        var forbiddenSourceTokens = new[]
+        {
+            "BlobClient",
+            "BlobServiceClient",
+            "ChatClient",
+            "OpenAIClient",
+            "SemanticKernel"
+        };
+        var packageViolations = GetPackageReferences(persistenceProject)
+            .Where(package => forbiddenPackagePrefixes.Any(prefix =>
+                package.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        var sourceViolations = GetSourceFiles(Path.GetDirectoryName(persistenceProject)!)
+            .Select(file => new
+            {
+                File = file,
+                Tokens = forbiddenSourceTokens
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.Empty(packageViolations);
+        Assert.Empty(sourceViolations);
     }
 
     [Fact]

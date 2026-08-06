@@ -110,15 +110,138 @@ public sealed class PersistenceFoundationTests(PostgresFixture fixture) : IClass
                 14,
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 "tenant/workspace/synthetic.txt",
-                "default"),
+                "default",
+                "evidence-reg-001"),
             CancellationToken.None);
 
         Assert.NotEqual(default, result.EvidenceId);
+        Assert.False(result.IdempotentReplay);
         Assert.Equal(1, await dbContext.EvidenceRecords.CountAsync());
         Assert.Equal(1, await dbContext.EvidenceVersions.CountAsync());
         Assert.Equal(1, await dbContext.AuditEntries.CountAsync());
         Assert.Equal(1, await dbContext.LineageRelationships.CountAsync());
         Assert.Equal(1, await dbContext.OutboxMessages.CountAsync());
+    }
+
+    [Fact]
+    public async Task Evidence_registration_replays_duplicate_idempotency_key()
+    {
+        var tenantId = TenantId.New();
+        var workspaceId = WorkspaceId.New();
+        var accessor = CreateRequestContext(tenantId, workspaceId);
+        await SeedTenantAndWorkspaceAsync(tenantId, workspaceId, accessor);
+        await using var dbContext = fixture.CreateDbContext(accessor);
+        var service = CreateEvidenceRegistrationService(dbContext, accessor);
+        var request = new EvidenceRegistrationRequest(
+            "Document",
+            "Internal",
+            "synthetic.txt",
+            "text/plain",
+            14,
+            "3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "tenant/workspace/synthetic-idempotent.txt",
+            "default",
+            "evidence-reg-idempotent-001");
+
+        var first = await service.RegisterInitialVersionAsync(request, CancellationToken.None);
+        var second = await service.RegisterInitialVersionAsync(request, CancellationToken.None);
+
+        Assert.False(first.IdempotentReplay);
+        Assert.True(second.IdempotentReplay);
+        Assert.Equal(first.EvidenceId, second.EvidenceId);
+        Assert.Equal(first.VersionId, second.VersionId);
+        Assert.Equal(1, await dbContext.EvidenceRecords.CountAsync());
+        Assert.Equal(1, await dbContext.OutboxMessages.CountAsync());
+    }
+
+    [Fact]
+    public async Task Evidence_registration_rejects_idempotency_key_conflict()
+    {
+        var tenantId = TenantId.New();
+        var workspaceId = WorkspaceId.New();
+        var accessor = CreateRequestContext(tenantId, workspaceId);
+        await SeedTenantAndWorkspaceAsync(tenantId, workspaceId, accessor);
+        await using var dbContext = fixture.CreateDbContext(accessor);
+        var service = CreateEvidenceRegistrationService(dbContext, accessor);
+
+        await service.RegisterInitialVersionAsync(
+            new EvidenceRegistrationRequest(
+                "Document",
+                "Internal",
+                "synthetic.txt",
+                "text/plain",
+                14,
+                "4123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "tenant/workspace/synthetic-conflict-a.txt",
+                "default",
+                "evidence-reg-conflict-001"),
+            CancellationToken.None);
+
+        await Assert.ThrowsAsync<EvidenceRegistrationConflictException>(() => service.RegisterInitialVersionAsync(
+            new EvidenceRegistrationRequest(
+                "Document",
+                "Internal",
+                "different.txt",
+                "text/plain",
+                14,
+                "5123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "tenant/workspace/synthetic-conflict-b.txt",
+                "default",
+                "evidence-reg-conflict-001"),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Evidence_registration_rejects_invalid_command()
+    {
+        var tenantId = TenantId.New();
+        var workspaceId = WorkspaceId.New();
+        var accessor = CreateRequestContext(tenantId, workspaceId);
+        await SeedTenantAndWorkspaceAsync(tenantId, workspaceId, accessor);
+        await using var dbContext = fixture.CreateDbContext(accessor);
+        var service = CreateEvidenceRegistrationService(dbContext, accessor);
+
+        var exception = await Assert.ThrowsAsync<EvidenceRegistrationValidationException>(() => service.RegisterInitialVersionAsync(
+            new EvidenceRegistrationRequest(
+                "Unsupported",
+                "Internal",
+                "synthetic.txt",
+                "text/plain",
+                14,
+                "not-a-sha256",
+                "tenant/workspace/synthetic-invalid.txt",
+                "default",
+                "evidence-reg-invalid-001"),
+            CancellationToken.None));
+
+        Assert.Contains("EvidenceType", exception.Errors.Keys);
+        Assert.Contains("ContentHash", exception.Errors.Keys);
+    }
+
+    [Fact]
+    public async Task Evidence_registration_rejects_workspace_outside_active_tenant()
+    {
+        var tenantA = TenantId.New();
+        var tenantB = TenantId.New();
+        var workspaceB = WorkspaceId.New();
+        var accessorB = CreateRequestContext(tenantB, workspaceB);
+        await SeedTenantAndWorkspaceAsync(tenantB, workspaceB, accessorB);
+        var accessorAWorkspaceB = CreateRequestContext(tenantA, workspaceB);
+        await using var dbContext = fixture.CreateDbContext(accessorAWorkspaceB);
+        var service = CreateEvidenceRegistrationService(dbContext, accessorAWorkspaceB);
+
+        await Assert.ThrowsAsync<EvidenceRegistrationForbiddenException>(() => service.RegisterInitialVersionAsync(
+            new EvidenceRegistrationRequest(
+                "Document",
+                "Internal",
+                "synthetic.txt",
+                "text/plain",
+                14,
+                "6123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "tenant/workspace/synthetic-forbidden.txt",
+                "default",
+                "evidence-reg-forbidden-001"),
+            CancellationToken.None));
     }
 
     [Fact]
@@ -150,12 +273,13 @@ public sealed class PersistenceFoundationTests(PostgresFixture fixture) : IClass
             new EvidenceRegistrationRequest(
                 "Document",
                 "Internal",
-                "synthetic.txt",
+                new string('x', 600),
                 "text/plain",
                 14,
                 "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-                "https://public.example.invalid/synthetic.txt",
-                "default"),
+                "tenant/workspace/synthetic-rollback.txt",
+                "default",
+                "evidence-reg-rollback-001"),
             CancellationToken.None));
 
         Assert.Equal(0, await dbContext.EvidenceRecords.CountAsync());
@@ -252,7 +376,8 @@ public sealed class PersistenceFoundationTests(PostgresFixture fixture) : IClass
                 14,
                 "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 "tenant/workspace/synthetic-immutable.txt",
-                "default"),
+                "default",
+                "evidence-reg-immutable-001"),
             CancellationToken.None);
     }
 

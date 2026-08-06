@@ -69,6 +69,38 @@ public static class FoundationEndpoints
                             ["200"] = new { description = "Approved architectural boundary assertions" }
                         }
                     }
+                },
+                ["/api/v1/workspaces/{workspaceId}/evidence"] = new
+                {
+                    post = new
+                    {
+                        summary = "Register initial evidence metadata and immutable version",
+                        parameters = new object[]
+                        {
+                            new
+                            {
+                                name = "workspaceId",
+                                @in = "path",
+                                required = true,
+                                schema = new { type = "string", format = "uuid" }
+                            },
+                            new
+                            {
+                                name = "Idempotency-Key",
+                                @in = "header",
+                                required = false,
+                                schema = new { type = "string" }
+                            }
+                        },
+                        responses = new Dictionary<string, object>
+                        {
+                            ["201"] = new { description = "Evidence registration committed" },
+                            ["400"] = new { description = "Invalid command or missing context" },
+                            ["401"] = new { description = "Actor context is invalid" },
+                            ["403"] = new { description = "Workspace is outside the active tenant context" },
+                            ["409"] = new { description = "Idempotency key was used with a different request" }
+                        }
+                    }
                 }
             }
         })).AllowAnonymous();
