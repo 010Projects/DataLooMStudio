@@ -52,6 +52,10 @@ public sealed class DataLooMDbContext(
 
     public DbSet<EvidenceVersion> EvidenceVersions => Set<EvidenceVersion>();
 
+    public DbSet<EvidenceUploadAllocation> EvidenceUploadAllocations => Set<EvidenceUploadAllocation>();
+
+    public DbSet<EvidenceContentVerification> EvidenceContentVerifications => Set<EvidenceContentVerification>();
+
     public DbSet<LineageRelationship> LineageRelationships => Set<LineageRelationship>();
 
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
@@ -78,7 +82,11 @@ public sealed class DataLooMDbContext(
     {
         ConfigureTenancy(modelBuilder.Entity<Tenant>());
         ConfigureWorkspaces(modelBuilder.Entity<Workspace>());
-        ConfigureEvidence(modelBuilder.Entity<EvidenceRecord>(), modelBuilder.Entity<EvidenceVersion>());
+        ConfigureEvidence(
+            modelBuilder.Entity<EvidenceRecord>(),
+            modelBuilder.Entity<EvidenceVersion>(),
+            modelBuilder.Entity<EvidenceUploadAllocation>(),
+            modelBuilder.Entity<EvidenceContentVerification>());
         ConfigureLineage(modelBuilder.Entity<LineageRelationship>());
         ConfigureAudit(modelBuilder.Entity<AuditEntry>());
         ConfigureRetention(modelBuilder.Entity<RetentionPolicy>(), modelBuilder.Entity<LegalHold>());
@@ -145,7 +153,9 @@ public sealed class DataLooMDbContext(
 
     private void ConfigureEvidence(
         EntityTypeBuilder<EvidenceRecord> builder,
-        EntityTypeBuilder<EvidenceVersion> evidenceVersion)
+        EntityTypeBuilder<EvidenceVersion> evidenceVersion,
+        EntityTypeBuilder<EvidenceUploadAllocation> uploadAllocation,
+        EntityTypeBuilder<EvidenceContentVerification> contentVerification)
     {
         builder.ToTable("evidence_records", "evidence");
         builder.HasKey(evidence => evidence.Id);
@@ -183,6 +193,44 @@ public sealed class DataLooMDbContext(
         ConfigureWorkspaceScope(evidenceVersion);
         evidenceVersion.HasIndex(version => new { version.TenantId, version.WorkspaceId, version.EvidenceId, version.Sequence }).IsUnique();
         evidenceVersion.HasIndex(version => new { version.TenantId, version.WorkspaceId, version.ContentHash });
+
+        uploadAllocation.ToTable("evidence_upload_allocations", "evidence");
+        uploadAllocation.HasKey(allocation => allocation.Id);
+        uploadAllocation.Property(allocation => allocation.EvidenceId).HasConversion(EvidenceIdConverter).ValueGeneratedNever();
+        uploadAllocation.Property(allocation => allocation.VersionId).HasConversion(EvidenceVersionIdConverter).ValueGeneratedNever();
+        uploadAllocation.Property(allocation => allocation.StorageObjectReference).HasMaxLength(1024).IsRequired();
+        uploadAllocation.Property(allocation => allocation.UploadAuthorityHash).HasMaxLength(64).IsRequired();
+        uploadAllocation.Property(allocation => allocation.PermittedOperation).HasMaxLength(32).IsRequired();
+        uploadAllocation.Property(allocation => allocation.MediaType).HasMaxLength(255).IsRequired();
+        uploadAllocation.Property(allocation => allocation.Status).HasMaxLength(32).IsRequired();
+        uploadAllocation.Property(allocation => allocation.IdempotencyKey).HasMaxLength(128).IsRequired();
+        uploadAllocation.Property(allocation => allocation.RequestHash).HasMaxLength(64).IsRequired();
+        uploadAllocation.Property(allocation => allocation.CreatedBy).HasMaxLength(256).IsRequired();
+        uploadAllocation.Property(allocation => allocation.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(uploadAllocation);
+        uploadAllocation.HasIndex(allocation => new { allocation.TenantId, allocation.WorkspaceId, allocation.EvidenceId, allocation.VersionId, allocation.IdempotencyKey }).IsUnique();
+        uploadAllocation.HasIndex(allocation => new { allocation.TenantId, allocation.WorkspaceId, allocation.StorageObjectReference }).IsUnique();
+        uploadAllocation.HasIndex(allocation => new { allocation.TenantId, allocation.WorkspaceId, allocation.Status, allocation.ExpiresAt });
+
+        contentVerification.ToTable("evidence_content_verifications", "evidence");
+        contentVerification.HasKey(verification => verification.Id);
+        contentVerification.Property(verification => verification.EvidenceId).HasConversion(EvidenceIdConverter).ValueGeneratedNever();
+        contentVerification.Property(verification => verification.VersionId).HasConversion(EvidenceVersionIdConverter).ValueGeneratedNever();
+        contentVerification.Property(verification => verification.StorageObjectReference).HasMaxLength(1024).IsRequired();
+        contentVerification.Property(verification => verification.ReceiptIdempotencyKey).HasMaxLength(128).IsRequired();
+        contentVerification.Property(verification => verification.ReceiptRequestHash).HasMaxLength(64).IsRequired();
+        contentVerification.Property(verification => verification.ExpectedSha256Hash).HasMaxLength(64).IsRequired();
+        contentVerification.Property(verification => verification.ActualSha256Hash).HasMaxLength(64).IsRequired();
+        contentVerification.Property(verification => verification.IntegrityOutcome).HasMaxLength(64).IsRequired();
+        contentVerification.Property(verification => verification.ScanOutcome).HasMaxLength(64).IsRequired();
+        contentVerification.Property(verification => verification.ScannerName).HasMaxLength(128).IsRequired();
+        contentVerification.Property(verification => verification.ScannerVersion).HasMaxLength(128).IsRequired();
+        contentVerification.Property(verification => verification.ResultLifecycleState).HasMaxLength(64).IsRequired();
+        contentVerification.Property(verification => verification.FailureReason).HasMaxLength(256);
+        ConfigureWorkspaceScope(contentVerification);
+        contentVerification.HasIndex(verification => new { verification.TenantId, verification.WorkspaceId, verification.AllocationId }).IsUnique();
+        contentVerification.HasIndex(verification => new { verification.TenantId, verification.WorkspaceId, verification.EvidenceId, verification.VersionId, verification.ReceiptIdempotencyKey }).IsUnique();
+        contentVerification.HasIndex(verification => new { verification.TenantId, verification.WorkspaceId, verification.ResultLifecycleState });
     }
 
     private void ConfigureLineage(EntityTypeBuilder<LineageRelationship> builder)

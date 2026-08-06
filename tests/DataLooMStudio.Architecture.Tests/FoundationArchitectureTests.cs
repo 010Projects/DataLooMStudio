@@ -393,6 +393,149 @@ public sealed class FoundationArchitectureTests
     }
 
     [Fact]
+    public void Product_modules_must_not_reference_storage_or_scanning_provider_dependencies()
+    {
+        var moduleProjects = GetProjectFiles(Path.Combine(RepositoryRoot, "src", "Modules"));
+        var forbiddenPackagePrefixes = new[]
+        {
+            "Azure.Storage",
+            "Azure.AI",
+            "OpenAI",
+            "Microsoft.SemanticKernel"
+        };
+        var forbiddenSourceTokens = new[]
+        {
+            "BlobClient",
+            "BlobServiceClient",
+            "BlobSasBuilder",
+            "TokenCredential",
+            "AzureEvidenceObjectStore",
+            "DefaultAzureCredential",
+            "OpenAIClient",
+            "ChatClient",
+            "SemanticKernel"
+        };
+        var packageViolations = moduleProjects
+            .SelectMany(project => GetPackageReferences(project)
+                .Where(package => forbiddenPackagePrefixes.Any(prefix =>
+                    package.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                .Select(package => $"{RelativeToRepository(project)} uses {package}"))
+            .ToArray();
+        var sourceViolations = GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Modules"))
+            .Select(file => new
+            {
+                File = file,
+                Tokens = forbiddenSourceTokens
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.Empty(packageViolations);
+        Assert.Empty(sourceViolations);
+    }
+
+    [Fact]
+    public void Evidence_storage_and_scanning_adapters_must_remain_provider_neutral_outside_infrastructure()
+    {
+        var infrastructureRoot = Path.Combine(RepositoryRoot, "src", "BuildingBlocks", "DataLooMStudio.Infrastructure");
+        var azureStorageProvider = Path.Combine(infrastructureRoot, "Storage", "AzureEvidenceObjectStore.cs");
+        var scannerBoundary = Path.Combine(infrastructureRoot, "SecurityScanning", "IEvidenceMalwareScanner.cs");
+        var forbiddenProviderTokens = new[]
+        {
+            "BlobClient",
+            "BlobServiceClient",
+            "BlobSasBuilder",
+            "DefaultAzureCredential",
+            "TokenCredential"
+        };
+        var nonInfrastructureSource = GetSourceFiles(Path.Combine(RepositoryRoot, "src"))
+            .Where(file => !IsUnder(file, "src", "BuildingBlocks", "DataLooMStudio.Infrastructure"))
+            .ToArray();
+        var violations = nonInfrastructureSource
+            .Select(file => new
+            {
+                File = file,
+                Tokens = forbiddenProviderTokens
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.True(File.Exists(azureStorageProvider), RelativeToRepository(azureStorageProvider));
+        Assert.True(File.Exists(scannerBoundary), RelativeToRepository(scannerBoundary));
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Product_audit_for_evidence_content_must_not_be_implemented_through_logging()
+    {
+        var evidenceRuntimeSource = GetSourceFiles(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Runtime",
+            "DataLooMStudio.Runtime.Persistence",
+            "Evidence"));
+        var forbiddenTokens = new[]
+        {
+            "ILogger",
+            "LogInformation",
+            "LogWarning",
+            "LogError"
+        };
+        var violations = evidenceRuntimeSource
+            .Select(file => new
+            {
+                File = file,
+                Tokens = forbiddenTokens
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Product_code_must_not_contain_storage_credentials()
+    {
+        var productRoots = new[]
+        {
+            Path.Combine(RepositoryRoot, "src", "Modules"),
+            Path.Combine(RepositoryRoot, "src", "Runtime"),
+            Path.Combine(RepositoryRoot, "src", "Api")
+        };
+        var credentialPatterns = new[]
+        {
+            "AccountKey=",
+            "SharedAccessSignature=",
+            "DefaultEndpointsProtocol=",
+            "BlobEndpoint=",
+            "QueueEndpoint="
+        };
+        var violations = productRoots
+            .SelectMany(GetSourceFiles)
+            .Select(file => new
+            {
+                File = file,
+                Tokens = credentialPatterns
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.OrdinalIgnoreCase))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
     public void Migration_boundaries_are_isolated_by_approved_module_schema()
     {
         var expected = new Dictionary<string, string>(StringComparer.Ordinal)
