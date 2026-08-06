@@ -42,6 +42,10 @@ public sealed class EvidenceRecord : IWorkspaceScoped
 
     public string RetentionPolicyKey { get; init; } = string.Empty;
 
+    public string RegistrationIdempotencyKey { get; init; } = string.Empty;
+
+    public string RegistrationRequestHash { get; init; } = string.Empty;
+
     public DateTimeOffset CapturedAt { get; init; }
 
     public Guid ConcurrencyToken { get; init; } = Guid.NewGuid();

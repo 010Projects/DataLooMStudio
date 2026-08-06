@@ -22,9 +22,12 @@ public sealed class TenantWorkspaceContextMiddleware(
         var endpoint = httpContext.GetEndpoint();
         var allowsAnonymous = endpoint?.Metadata.GetMetadata<IAllowAnonymous>() is not null;
         var requiresWorkspaceScope = endpoint?.Metadata.GetMetadata<RequiresWorkspaceScopeMetadata>() is not null;
+        var isAuthenticated = httpContext.User.Identity?.IsAuthenticated == true;
         RequestContext? requestContext = null;
 
-        if (requiresWorkspaceScope && !TryCreateRequestContext(httpContext, correlationId, out requestContext))
+        if (requiresWorkspaceScope
+            && isAuthenticated
+            && !TryCreateRequestContext(httpContext, correlationId, out requestContext))
         {
             logger.LogWarning(
                 "Rejected workspace-scoped request without complete tenant/workspace context. Path: {Path}, CorrelationId: {CorrelationId}",

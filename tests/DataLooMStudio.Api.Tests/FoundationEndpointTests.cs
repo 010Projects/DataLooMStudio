@@ -47,6 +47,31 @@ public sealed class FoundationEndpointTests(WebApplicationFactory<Program> facto
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("DataLooM Studio Foundation API", body, StringComparison.Ordinal);
         Assert.Contains("/api/modules", body, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/workspaces/{workspaceId}/evidence", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Evidence_registration_requires_authenticated_actor()
+    {
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/v1/workspaces/{Guid.NewGuid():D}/evidence",
+            new
+            {
+                evidenceType = "Document",
+                classification = "Internal",
+                originalFileName = "synthetic.txt",
+                mediaType = "text/plain",
+                declaredSize = 14,
+                contentHash = "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                storageObjectReference = "tenant/workspace/synthetic.txt",
+                retentionPolicyKey = "default",
+                idempotencyKey = "api-unauthorized-001"
+            },
+            CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     private sealed record ModuleManifestResponse(
