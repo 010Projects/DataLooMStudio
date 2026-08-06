@@ -7,8 +7,10 @@
 - Source main commit: `c7e7ec4467951209a7fad369eaaa2130e6fbe335`
 - Implementation branch: `feature/dls-inc-001-evidence-content-integrity`
 - Implementation commit: `5b5cf09e3efb44d0ce9d001cf3ac697ad57946aa`
+- Checkpoint commit: `dbc8db122101bb091f34e7f069bf8b62d74cdaf9`
 - Pull request: `#2` - `https://github.com/010Projects/DataLooMStudio/pull/2`
-- CI result: pending GitHub runner completion at checkpoint authoring. PR run `31121156441` failed once in hosted-runner setup before checkout/build/test with `Service Unavailable`, then was rerun and remained queued. Local required validation passed.
+- CI result: PASS - PR run `31122894236` on checkpoint commit `dbc8db122101bb091f34e7f069bf8b62d74cdaf9`
+- CI incident evidence: earlier PR run `31121156441` failed in hosted-runner setup before checkout/build/test with `Service Unavailable`; rerun on the checkpoint commit passed.
 
 ## Changed Files
 
@@ -175,11 +177,11 @@ Lineage relationships connect the Evidence lineage ID to content events, integri
 - Azure storage adapter remains unprovisioned and unvalidated against a live storage account.
 - Quarantine release and Security investigation workflow are not implemented in this slice.
 - Retrieval and reviewer decision workflows are not implemented in this slice.
-- PR merge is not authorised until GitHub PR CI reaches a terminal PASS.
+- PR merge remains subject to repository merge governance and latest-head checks.
 
 ## Risks
 
-- GitHub Actions runner availability delayed PR CI evidence during checkpoint authoring.
+- GitHub Actions runner availability delayed PR CI evidence during checkpoint authoring; rerun on checkpoint commit passed.
 - Production upload authority depends on Azure user-delegation SAS configuration and managed identity permissions that require later Azure validation.
 - The default scanner intentionally returns `Unavailable`; environments without an approved scanner will quarantine received content.
 
@@ -189,9 +191,8 @@ Lineage relationships connect the Evidence lineage ID to content events, integri
 
 Conditions:
 
-1. PR #2 CI must pass before merge.
-2. Repository merge governance must be completed without bypassing required checks.
-3. Production storage and malware provider evidence require separate Security and Azure validation authority.
+1. Repository merge governance must be completed without bypassing required checks.
+2. Production storage and malware provider evidence require separate Security and Azure validation authority.
 
 After successful PR review, CI and merge governance, the next specialist workspace is:
 
