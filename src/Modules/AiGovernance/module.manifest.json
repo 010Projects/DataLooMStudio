@@ -1,0 +1,20 @@
+{
+  "name": "AiGovernance",
+  "version": "1.0.0",
+  "boundaryKind": "AiGovernanceBoundary",
+  "requiresTenantContext": true,
+  "requiresWorkspaceContext": true,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "AI policy boundary",
+    "Model execution prohibition",
+    "Prompt and result governance metadata only"
+  ],
+  "dependsOn": [
+    "Tenancy",
+    "Workspaces",
+    "Audit",
+    "Commercial"
+  ]
+}

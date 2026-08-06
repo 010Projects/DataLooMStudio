@@ -1,0 +1,14 @@
+{
+  "name": "Tenancy",
+  "version": "1.0.0",
+  "boundaryKind": "Core",
+  "requiresTenantContext": false,
+  "requiresWorkspaceContext": false,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "Authoritative tenant records",
+    "External identity authority mapping"
+  ],
+  "dependsOn": []
+}

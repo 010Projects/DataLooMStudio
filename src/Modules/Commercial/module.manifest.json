@@ -1,0 +1,17 @@
+{
+  "name": "Commercial",
+  "version": "1.0.0",
+  "boundaryKind": "Commercial",
+  "requiresTenantContext": true,
+  "requiresWorkspaceContext": true,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "Commercial capability entitlement",
+    "Plan and feature boundaries"
+  ],
+  "dependsOn": [
+    "Tenancy",
+    "Workspaces"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Lineage",
+  "version": "1.0.0",
+  "boundaryKind": "Lineage",
+  "requiresTenantContext": true,
+  "requiresWorkspaceContext": true,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "Immutable lineage identifiers",
+    "Versioned relationships"
+  ],
+  "dependsOn": [
+    "Tenancy",
+    "Workspaces"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "Workflows",
+  "version": "1.0.0",
+  "boundaryKind": "Workflow",
+  "requiresTenantContext": true,
+  "requiresWorkspaceContext": true,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "Workflow definitions",
+    "Workflow run tracking",
+    "No lifecycle ownership"
+  ],
+  "dependsOn": [
+    "Tenancy",
+    "Workspaces",
+    "Lifecycle",
+    "Audit"
+  ]
+}

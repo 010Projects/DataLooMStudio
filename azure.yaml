@@ -1,0 +1,21 @@
+name: dataloomstudio
+metadata:
+  template: dataloomstudio-foundation@0.1.0
+services:
+  api:
+    project: ./src/Api/DataLooMStudio.Api
+    language: dotnet
+    host: containerapp
+    docker:
+      path: ./src/Api/DataLooMStudio.Api/Dockerfile
+      context: .
+  web:
+    project: ./src/Web/DataLooMStudio.Web
+    language: js
+    host: containerapp
+    docker:
+      path: ./src/Web/DataLooMStudio.Web/Dockerfile
+      context: ./src/Web/DataLooMStudio.Web
+infra:
+  provider: bicep
+  path: ./infra

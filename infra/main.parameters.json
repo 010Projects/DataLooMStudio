@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "dls-dev"
+    },
+    "environment": {
+      "value": "dev"
+    },
+    "postgresAdministratorLogin": {
+      "value": "dlsadmin"
+    },
+    "postgresAdministratorPassword": {
+      "value": ""
+    },
+    "apiContainerImage": {
+      "value": "ghcr.io/010projects/dataloomstudio-api:placeholder"
+    },
+    "webContainerImage": {
+      "value": "ghcr.io/010projects/dataloomstudio-web:placeholder"
+    }
+  }
+}

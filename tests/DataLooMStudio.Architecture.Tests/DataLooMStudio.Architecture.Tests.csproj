@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BuildingBlocks\DataLooMStudio.SharedKernel\DataLooMStudio.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\DataLooMStudio.Infrastructure\DataLooMStudio.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Api\DataLooMStudio.Api\DataLooMStudio.Api.csproj" />
+    <ProjectReference Include="..\..\src\Runtime\DataLooMStudio.Runtime\DataLooMStudio.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\Runtime\DataLooMStudio.Runtime.Persistence\DataLooMStudio.Runtime.Persistence.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Tenancy\DataLooMStudio.Modules.Tenancy\DataLooMStudio.Modules.Tenancy.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Workspaces\DataLooMStudio.Modules.Workspaces\DataLooMStudio.Modules.Workspaces.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Evidence\DataLooMStudio.Modules.Evidence\DataLooMStudio.Modules.Evidence.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Lineage\DataLooMStudio.Modules.Lineage\DataLooMStudio.Modules.Lineage.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Audit\DataLooMStudio.Modules.Audit\DataLooMStudio.Modules.Audit.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Retention\DataLooMStudio.Modules.Retention\DataLooMStudio.Modules.Retention.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Commercial\DataLooMStudio.Modules.Commercial\DataLooMStudio.Modules.Commercial.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Lifecycle\DataLooMStudio.Modules.Lifecycle\DataLooMStudio.Modules.Lifecycle.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Workflows\DataLooMStudio.Modules.Workflows\DataLooMStudio.Modules.Workflows.csproj" />
+    <ProjectReference Include="..\..\src\Modules\AiGovernance\DataLooMStudio.Modules.AiGovernance\DataLooMStudio.Modules.AiGovernance.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,21 @@
+{
+  "name": "Evidence",
+  "version": "1.0.0",
+  "boundaryKind": "EvidenceConsistency",
+  "requiresTenantContext": true,
+  "requiresWorkspaceContext": true,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "Evidence metadata",
+    "Evidence integrity proof",
+    "ADR-014 consistency boundary"
+  ],
+  "dependsOn": [
+    "Tenancy",
+    "Workspaces",
+    "Lineage",
+    "Retention",
+    "Audit"
+  ]
+}

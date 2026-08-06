@@ -1,0 +1,18 @@
+{
+  "name": "Lifecycle",
+  "version": "1.0.0",
+  "boundaryKind": "Lifecycle",
+  "requiresTenantContext": true,
+  "requiresWorkspaceContext": true,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "State definitions",
+    "State transition auditability"
+  ],
+  "dependsOn": [
+    "Tenancy",
+    "Workspaces",
+    "Audit"
+  ]
+}

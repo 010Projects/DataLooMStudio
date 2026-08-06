@@ -1,0 +1,19 @@
+{
+  "name": "Retention",
+  "version": "1.0.0",
+  "boundaryKind": "Retention",
+  "requiresTenantContext": true,
+  "requiresWorkspaceContext": true,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "Retention policies",
+    "Legal holds",
+    "Deletion eligibility decisions"
+  ],
+  "dependsOn": [
+    "Tenancy",
+    "Workspaces",
+    "Evidence"
+  ]
+}

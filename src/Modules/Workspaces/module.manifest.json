@@ -1,0 +1,16 @@
+{
+  "name": "Workspaces",
+  "version": "1.0.0",
+  "boundaryKind": "Core",
+  "requiresTenantContext": true,
+  "requiresWorkspaceContext": false,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "Workspace catalog",
+    "Tenant-owned workspace membership boundary"
+  ],
+  "dependsOn": [
+    "Tenancy"
+  ]
+}

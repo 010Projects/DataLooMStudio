@@ -1,0 +1,56 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Api/">
+    <Project Path="src/Api/DataLooMStudio.Api/DataLooMStudio.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Dls.Migrate/">
+    <Project Path="src/Dls.Migrate/DataLooMStudio.Dls.Migrate/DataLooMStudio.Dls.Migrate.csproj" />
+  </Folder>
+  <Folder Name="/src/Dls.Worker/">
+    <Project Path="src/Dls.Worker/DataLooMStudio.Dls.Worker/DataLooMStudio.Dls.Worker.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/AiGovernance/">
+    <Project Path="src/Modules/AiGovernance/DataLooMStudio.Modules.AiGovernance/DataLooMStudio.Modules.AiGovernance.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Audit/">
+    <Project Path="src/Modules/Audit/DataLooMStudio.Modules.Audit/DataLooMStudio.Modules.Audit.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Commercial/">
+    <Project Path="src/Modules/Commercial/DataLooMStudio.Modules.Commercial/DataLooMStudio.Modules.Commercial.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Evidence/">
+    <Project Path="src/Modules/Evidence/DataLooMStudio.Modules.Evidence/DataLooMStudio.Modules.Evidence.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Lifecycle/">
+    <Project Path="src/Modules/Lifecycle/DataLooMStudio.Modules.Lifecycle/DataLooMStudio.Modules.Lifecycle.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Lineage/">
+    <Project Path="src/Modules/Lineage/DataLooMStudio.Modules.Lineage/DataLooMStudio.Modules.Lineage.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Retention/">
+    <Project Path="src/Modules/Retention/DataLooMStudio.Modules.Retention/DataLooMStudio.Modules.Retention.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Tenancy/">
+    <Project Path="src/Modules/Tenancy/DataLooMStudio.Modules.Tenancy/DataLooMStudio.Modules.Tenancy.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Workflows/">
+    <Project Path="src/Modules/Workflows/DataLooMStudio.Modules.Workflows/DataLooMStudio.Modules.Workflows.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Workspaces/">
+    <Project Path="src/Modules/Workspaces/DataLooMStudio.Modules.Workspaces/DataLooMStudio.Modules.Workspaces.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/DataLooMStudio.Infrastructure/DataLooMStudio.Infrastructure.csproj" />
+    <Project Path="src/BuildingBlocks/DataLooMStudio.SharedKernel/DataLooMStudio.SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/src/Runtime/">
+    <Project Path="src/Runtime/DataLooMStudio.Runtime/DataLooMStudio.Runtime.csproj" />
+    <Project Path="src/Runtime/DataLooMStudio.Runtime.Persistence/DataLooMStudio.Runtime.Persistence.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DataLooMStudio.Api.Tests/DataLooMStudio.Api.Tests.csproj" />
+    <Project Path="tests/DataLooMStudio.Architecture.Tests/DataLooMStudio.Architecture.Tests.csproj" />
+    <Project Path="tests/DataLooMStudio.Persistence.Tests/DataLooMStudio.Persistence.Tests.csproj" />
+  </Folder>
+</Solution>

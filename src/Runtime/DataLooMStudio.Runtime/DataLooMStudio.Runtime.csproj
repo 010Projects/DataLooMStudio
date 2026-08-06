@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\DataLooMStudio.SharedKernel\DataLooMStudio.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\Modules\Tenancy\DataLooMStudio.Modules.Tenancy\DataLooMStudio.Modules.Tenancy.csproj" />
+    <ProjectReference Include="..\..\Modules\Workspaces\DataLooMStudio.Modules.Workspaces\DataLooMStudio.Modules.Workspaces.csproj" />
+    <ProjectReference Include="..\..\Modules\Evidence\DataLooMStudio.Modules.Evidence\DataLooMStudio.Modules.Evidence.csproj" />
+    <ProjectReference Include="..\..\Modules\Lineage\DataLooMStudio.Modules.Lineage\DataLooMStudio.Modules.Lineage.csproj" />
+    <ProjectReference Include="..\..\Modules\Audit\DataLooMStudio.Modules.Audit\DataLooMStudio.Modules.Audit.csproj" />
+    <ProjectReference Include="..\..\Modules\Retention\DataLooMStudio.Modules.Retention\DataLooMStudio.Modules.Retention.csproj" />
+    <ProjectReference Include="..\..\Modules\Commercial\DataLooMStudio.Modules.Commercial\DataLooMStudio.Modules.Commercial.csproj" />
+    <ProjectReference Include="..\..\Modules\Lifecycle\DataLooMStudio.Modules.Lifecycle\DataLooMStudio.Modules.Lifecycle.csproj" />
+    <ProjectReference Include="..\..\Modules\Workflows\DataLooMStudio.Modules.Workflows\DataLooMStudio.Modules.Workflows.csproj" />
+    <ProjectReference Include="..\..\Modules\AiGovernance\DataLooMStudio.Modules.AiGovernance\DataLooMStudio.Modules.AiGovernance.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

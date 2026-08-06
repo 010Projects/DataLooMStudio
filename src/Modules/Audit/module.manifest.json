@@ -1,0 +1,17 @@
+{
+  "name": "Audit",
+  "version": "1.0.0",
+  "boundaryKind": "Audit",
+  "requiresTenantContext": true,
+  "requiresWorkspaceContext": true,
+  "ownsTransactionalOutbox": true,
+  "containsAiExecution": false,
+  "responsibilities": [
+    "Append-only audit entries",
+    "Actor and correlation traceability"
+  ],
+  "dependsOn": [
+    "Tenancy",
+    "Workspaces"
+  ]
+}
