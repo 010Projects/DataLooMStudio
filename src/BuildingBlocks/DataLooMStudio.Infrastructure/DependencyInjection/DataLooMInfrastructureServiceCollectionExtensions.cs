@@ -6,6 +6,7 @@ using DataLooMStudio.Infrastructure.Configuration;
 using DataLooMStudio.Infrastructure.Outbox;
 using DataLooMStudio.Infrastructure.RequestContext;
 using DataLooMStudio.Infrastructure.Secrets;
+using DataLooMStudio.Infrastructure.SecurityScanning;
 using DataLooMStudio.Infrastructure.Storage;
 using DataLooMStudio.SharedKernel.Abstractions;
 using DataLooMStudio.SharedKernel.RequestContext;
@@ -29,7 +30,8 @@ public static class DataLooMInfrastructureServiceCollectionExtensions
         services.TryAddSingleton<TokenCredential, DefaultAzureCredential>();
 
         services.TryAddSingleton<IOutboxPublisher, ServiceBusOutboxPublisher>();
-        services.TryAddSingleton<IEvidenceBlobStore, AzureEvidenceBlobStore>();
+        services.TryAddSingleton<IEvidenceObjectStore, AzureEvidenceObjectStore>();
+        services.TryAddSingleton<IEvidenceMalwareScanner, UnavailableEvidenceMalwareScanner>();
         services.TryAddSingleton<ISecretResolver, KeyVaultSecretResolver>();
 
         return services;

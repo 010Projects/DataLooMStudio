@@ -20,19 +20,19 @@ public sealed class EvidenceRecord : IWorkspaceScoped
 
     public string Classification { get; init; } = "Internal";
 
-    public string LifecycleState { get; init; } = "Registered";
+    public string LifecycleState { get; set; } = "Registered";
 
     public string RegisteredBy { get; init; } = "system";
 
-    public string BlobName { get; init; } = string.Empty;
+    public string BlobName { get; set; } = string.Empty;
 
     public string ContentType { get; init; } = "application/octet-stream";
 
-    public long ContentLength { get; init; }
+    public long ContentLength { get; set; }
 
     public string Sha256Hash { get; init; } = string.Empty;
 
-    public EvidenceVerificationStatus VerificationStatus { get; init; } = EvidenceVerificationStatus.Pending;
+    public EvidenceVerificationStatus VerificationStatus { get; set; } = EvidenceVerificationStatus.Pending;
 
     public int Version { get; init; } = 1;
 
@@ -48,5 +48,5 @@ public sealed class EvidenceRecord : IWorkspaceScoped
 
     public DateTimeOffset CapturedAt { get; init; }
 
-    public Guid ConcurrencyToken { get; init; } = Guid.NewGuid();
+    public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
 }
