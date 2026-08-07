@@ -34,8 +34,10 @@ public static class DataLooMPersistenceServiceCollectionExtensions
         services.TryAddScoped<IOutboxWriter, EfOutboxWriter>();
         services.TryAddScoped<IEvidenceRegistrationService, EvidenceRegistrationService>();
         services.TryAddScoped<IEvidenceContentService, EvidenceContentService>();
+        services.TryAddScoped<IEvidenceReviewDecisionService, EvidenceReviewDecisionService>();
         services.TryAddScoped<EvidenceRegistrationService>();
         services.TryAddScoped<EvidenceContentService>();
+        services.TryAddScoped<EvidenceReviewDecisionService>();
         services.TryAddScoped<PostgresRlsSessionContext>();
 
         return services;

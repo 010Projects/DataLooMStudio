@@ -9,6 +9,7 @@
   "responsibilities": [
     "Evidence metadata",
     "Evidence integrity proof",
+    "Evidence review and decision authority",
     "ADR-014 consistency boundary"
   ],
   "dependsOn": [

@@ -56,6 +56,12 @@ public sealed class DataLooMDbContext(
 
     public DbSet<EvidenceContentVerification> EvidenceContentVerifications => Set<EvidenceContentVerification>();
 
+    public DbSet<EvidenceReviewRequest> EvidenceReviewRequests => Set<EvidenceReviewRequest>();
+
+    public DbSet<EvidenceReviewerAssignment> EvidenceReviewerAssignments => Set<EvidenceReviewerAssignment>();
+
+    public DbSet<EvidenceCandidateDecision> EvidenceCandidateDecisions => Set<EvidenceCandidateDecision>();
+
     public DbSet<LineageRelationship> LineageRelationships => Set<LineageRelationship>();
 
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
@@ -87,6 +93,10 @@ public sealed class DataLooMDbContext(
             modelBuilder.Entity<EvidenceVersion>(),
             modelBuilder.Entity<EvidenceUploadAllocation>(),
             modelBuilder.Entity<EvidenceContentVerification>());
+        ConfigureEvidenceReviewDecision(
+            modelBuilder.Entity<EvidenceReviewRequest>(),
+            modelBuilder.Entity<EvidenceReviewerAssignment>(),
+            modelBuilder.Entity<EvidenceCandidateDecision>());
         ConfigureLineage(modelBuilder.Entity<LineageRelationship>());
         ConfigureAudit(modelBuilder.Entity<AuditEntry>());
         ConfigureRetention(modelBuilder.Entity<RetentionPolicy>(), modelBuilder.Entity<LegalHold>());
@@ -253,6 +263,61 @@ public sealed class DataLooMDbContext(
             relationship.RelationshipType,
             relationship.Version
         }).IsUnique();
+    }
+
+    private void ConfigureEvidenceReviewDecision(
+        EntityTypeBuilder<EvidenceReviewRequest> reviewRequest,
+        EntityTypeBuilder<EvidenceReviewerAssignment> reviewerAssignment,
+        EntityTypeBuilder<EvidenceCandidateDecision> candidateDecision)
+    {
+        reviewRequest.ToTable("evidence_review_requests", "evidence");
+        reviewRequest.HasKey(review => review.Id);
+        reviewRequest.Property(review => review.EvidenceId).HasConversion(EvidenceIdConverter).ValueGeneratedNever();
+        reviewRequest.Property(review => review.EvidenceVersionId).HasConversion(EvidenceVersionIdConverter).ValueGeneratedNever();
+        reviewRequest.Property(review => review.LineageId).HasConversion(LineageIdConverter).ValueGeneratedNever();
+        reviewRequest.Property(review => review.ReviewKind).HasMaxLength(64).IsRequired();
+        reviewRequest.Property(review => review.State).HasMaxLength(64).IsRequired();
+        reviewRequest.Property(review => review.RequestedBy).HasMaxLength(256).IsRequired();
+        reviewRequest.Property(review => review.IdempotencyKey).HasMaxLength(128).IsRequired();
+        reviewRequest.Property(review => review.RequestHash).HasMaxLength(64).IsRequired();
+        reviewRequest.Property(review => review.DecidedBy).HasMaxLength(256);
+        reviewRequest.Property(review => review.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(reviewRequest);
+        reviewRequest.HasIndex(review => new { review.TenantId, review.WorkspaceId, review.EvidenceId, review.EvidenceVersionId, review.IdempotencyKey }).IsUnique();
+        reviewRequest.HasIndex(review => new { review.TenantId, review.WorkspaceId, review.State });
+
+        reviewerAssignment.ToTable("evidence_reviewer_assignments", "evidence");
+        reviewerAssignment.HasKey(assignment => assignment.Id);
+        reviewerAssignment.Property(assignment => assignment.ReviewerSubject).HasMaxLength(256).IsRequired();
+        reviewerAssignment.Property(assignment => assignment.Role).HasMaxLength(64).IsRequired();
+        reviewerAssignment.Property(assignment => assignment.AssignedBy).HasMaxLength(256).IsRequired();
+        reviewerAssignment.Property(assignment => assignment.RemovedBy).HasMaxLength(256);
+        reviewerAssignment.Property(assignment => assignment.IdempotencyKey).HasMaxLength(128).IsRequired();
+        reviewerAssignment.Property(assignment => assignment.RequestHash).HasMaxLength(64).IsRequired();
+        reviewerAssignment.Property(assignment => assignment.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(reviewerAssignment);
+        reviewerAssignment.HasIndex(assignment => new { assignment.TenantId, assignment.WorkspaceId, assignment.ReviewRequestId, assignment.IdempotencyKey }).IsUnique();
+        reviewerAssignment.HasIndex(assignment => new { assignment.TenantId, assignment.WorkspaceId, assignment.ReviewRequestId, assignment.ReviewerSubject, assignment.Role, assignment.IsActive });
+
+        candidateDecision.ToTable("evidence_candidate_decisions", "evidence");
+        candidateDecision.HasKey(candidate => candidate.Id);
+        candidateDecision.Property(candidate => candidate.EvidenceId).HasConversion(EvidenceIdConverter).ValueGeneratedNever();
+        candidateDecision.Property(candidate => candidate.EvidenceVersionId).HasConversion(EvidenceVersionIdConverter).ValueGeneratedNever();
+        candidateDecision.Property(candidate => candidate.DecisionType).HasMaxLength(64).IsRequired();
+        candidateDecision.Property(candidate => candidate.State).HasMaxLength(64).IsRequired();
+        candidateDecision.Property(candidate => candidate.Summary).HasMaxLength(2048).IsRequired();
+        candidateDecision.Property(candidate => candidate.CreatedBy).HasMaxLength(256).IsRequired();
+        candidateDecision.Property(candidate => candidate.IdempotencyKey).HasMaxLength(128).IsRequired();
+        candidateDecision.Property(candidate => candidate.RequestHash).HasMaxLength(64).IsRequired();
+        candidateDecision.Property(candidate => candidate.AppliedBy).HasMaxLength(256);
+        candidateDecision.Property(candidate => candidate.AppliedReason).HasMaxLength(512);
+        candidateDecision.Property(candidate => candidate.AppliedIdempotencyKey).HasMaxLength(128);
+        candidateDecision.Property(candidate => candidate.AppliedRequestHash).HasMaxLength(64);
+        candidateDecision.Property(candidate => candidate.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(candidateDecision);
+        candidateDecision.HasIndex(candidate => new { candidate.TenantId, candidate.WorkspaceId, candidate.ReviewRequestId, candidate.IdempotencyKey }).IsUnique();
+        candidateDecision.HasIndex(candidate => new { candidate.TenantId, candidate.WorkspaceId, candidate.ReviewRequestId, candidate.State });
+        candidateDecision.HasIndex(candidate => new { candidate.TenantId, candidate.WorkspaceId, candidate.SupersedesDecisionId });
     }
 
     private void ConfigureAudit(EntityTypeBuilder<AuditEntry> builder)
