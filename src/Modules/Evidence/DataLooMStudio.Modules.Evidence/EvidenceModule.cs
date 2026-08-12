@@ -12,6 +12,6 @@ public sealed class EvidenceModule : IDataLooMModule
         RequiresWorkspaceContext: true,
         OwnsTransactionalOutbox: true,
         ContainsAiExecution: false,
-        ["Evidence metadata", "Evidence integrity proof", "ADR-014 consistency boundary"],
+        ["Evidence metadata", "Evidence integrity proof", "Evidence review and decision authority", "ADR-014 consistency boundary"],
         ["Tenancy", "Workspaces", "Lineage", "Retention", "Audit"]);
 }

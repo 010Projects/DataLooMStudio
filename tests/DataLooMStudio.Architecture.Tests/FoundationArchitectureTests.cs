@@ -328,7 +328,78 @@ public sealed class FoundationArchitectureTests
 
         Assert.Equal(ModuleBoundaryKind.EvidenceConsistency, manifest.BoundaryKind);
         Assert.Contains(manifest.Responsibilities, responsibility => responsibility.Contains("ADR-014", StringComparison.Ordinal));
+        Assert.Contains(manifest.Responsibilities, responsibility => responsibility.Contains("review and decision", StringComparison.OrdinalIgnoreCase));
         Assert.True(manifest.OwnsTransactionalOutbox);
+    }
+
+    [Fact]
+    public void Evidence_review_and_decision_rules_must_be_owned_by_evidence_module()
+    {
+        var evidenceModuleRoot = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Modules",
+            "Evidence",
+            "DataLooMStudio.Modules.Evidence");
+        var reviewPolicy = Path.Combine(evidenceModuleRoot, "EvidenceReviewPolicy.cs");
+        var decisionPolicy = Path.Combine(evidenceModuleRoot, "EvidenceDecisionPolicy.cs");
+        var moduleSources = new[] { reviewPolicy, decisionPolicy };
+        var forbiddenRuleOwnerRoots = new[]
+        {
+            Path.Combine(RepositoryRoot, "src", "Api"),
+            Path.Combine(RepositoryRoot, "src", "Runtime", "DataLooMStudio.Runtime.Persistence")
+        };
+        var forbiddenPolicyDefinitions = forbiddenRuleOwnerRoots
+            .SelectMany(GetSourceFiles)
+            .Where(file =>
+            {
+                var source = File.ReadAllText(file);
+                return source.Contains("class EvidenceReviewPolicy", StringComparison.Ordinal)
+                    || source.Contains("class EvidenceDecisionPolicy", StringComparison.Ordinal);
+            })
+            .Select(RelativeToRepository)
+            .ToArray();
+        var forbiddenImports = moduleSources
+            .Select(file => new
+            {
+                File = file,
+                Source = File.ReadAllText(file)
+            })
+            .Where(file =>
+                file.Source.Contains("Microsoft.EntityFrameworkCore", StringComparison.Ordinal)
+                || file.Source.Contains("Microsoft.AspNetCore", StringComparison.Ordinal)
+                || file.Source.Contains("DataLooMStudio.Runtime", StringComparison.Ordinal))
+            .Select(file => RelativeToRepository(file.File))
+            .ToArray();
+
+        Assert.True(File.Exists(reviewPolicy), RelativeToRepository(reviewPolicy));
+        Assert.True(File.Exists(decisionPolicy), RelativeToRepository(decisionPolicy));
+        Assert.Contains("EvidenceReviewPolicy", File.ReadAllText(reviewPolicy), StringComparison.Ordinal);
+        Assert.Contains("EvidenceDecisionPolicy", File.ReadAllText(decisionPolicy), StringComparison.Ordinal);
+        Assert.Empty(forbiddenPolicyDefinitions);
+        Assert.Empty(forbiddenImports);
+    }
+
+    [Fact]
+    public void Evidence_review_runtime_must_delegate_authority_to_module_policies()
+    {
+        var reviewService = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Runtime",
+            "DataLooMStudio.Runtime.Persistence",
+            "Evidence",
+            "EvidenceReviewDecisionService.cs");
+        var source = File.ReadAllText(reviewService);
+        var apiSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Api")).Select(File.ReadAllText));
+
+        Assert.Contains("EvidenceReviewPolicy.", source, StringComparison.Ordinal);
+        Assert.Contains("EvidenceDecisionPolicy.", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DataLooMStudio.Modules", apiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("EvidenceDecisionPolicy", apiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("EvidenceReviewPolicy", apiSource, StringComparison.Ordinal);
     }
 
     [Fact]

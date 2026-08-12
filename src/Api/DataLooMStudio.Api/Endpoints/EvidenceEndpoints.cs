@@ -227,7 +227,357 @@ public static class EvidenceEndpoints
             .WithName("ConfirmEvidenceContentReceived")
             .WithSummary("Confirm Evidence content receipt and run integrity and scanning checks");
 
+        endpoints.MapPost(
+            "/api/v1/workspaces/{workspaceId:guid}/evidence/{evidenceId:guid}/versions/{versionId:guid}/reviews",
+            async (
+                Guid workspaceId,
+                Guid evidenceId,
+                Guid versionId,
+                EvidenceReviewRequestApiRequest request,
+                HttpContext httpContext,
+                IRequestContextAccessor contextAccessor,
+                IEvidenceReviewDecisionService reviewDecisionService,
+                CancellationToken cancellationToken) =>
+            {
+                var context = contextAccessor.Current;
+                if (context is null)
+                {
+                    return Results.Problem(
+                        title: "Tenant and workspace context is required.",
+                        statusCode: StatusCodes.Status400BadRequest);
+                }
+
+                if (context.WorkspaceId.Value != workspaceId)
+                {
+                    return Results.Forbid();
+                }
+
+                try
+                {
+                    var result = await reviewDecisionService.RequestReviewAsync(
+                        new EvidenceReviewRequestCommand(
+                            new EvidenceId(evidenceId),
+                            new EvidenceVersionId(versionId),
+                            request.ReviewKind,
+                            request.DueAt,
+                            ResolveIdempotencyKey(httpContext, request.IdempotencyKey)),
+                        cancellationToken);
+
+                    return Results.Created(
+                        $"/api/v1/workspaces/{workspaceId:D}/evidence-reviews/{result.ReviewId:D}",
+                        new EvidenceReviewRequestApiResponse(
+                            result.ReviewId,
+                            result.EvidenceId.ToString(),
+                            result.EvidenceVersionId.ToString(),
+                            result.State,
+                            result.Version,
+                            result.RequestedAt,
+                            result.IdempotentReplay));
+                }
+                catch (Exception exception) when (exception is EvidenceReviewDecisionValidationException
+                    or EvidenceReviewDecisionConflictException
+                    or EvidenceReviewDecisionForbiddenException
+                    or UnauthorizedAccessException)
+                {
+                    return ToReviewDecisionError(exception);
+                }
+            })
+            .RequireAuthorization("WorkspaceScoped")
+            .WithMetadata(RequiresWorkspaceScopeMetadata.Instance)
+            .WithName("RequestEvidenceReview")
+            .WithSummary("Request review for an available Evidence version");
+
+        endpoints.MapPost(
+            "/api/v1/workspaces/{workspaceId:guid}/evidence-reviews/{reviewId:guid}/assignments",
+            async (
+                Guid workspaceId,
+                Guid reviewId,
+                EvidenceReviewerAssignmentApiRequest request,
+                HttpContext httpContext,
+                IRequestContextAccessor contextAccessor,
+                IEvidenceReviewDecisionService reviewDecisionService,
+                CancellationToken cancellationToken) =>
+            {
+                var context = contextAccessor.Current;
+                if (context is null)
+                {
+                    return Results.Problem(
+                        title: "Tenant and workspace context is required.",
+                        statusCode: StatusCodes.Status400BadRequest);
+                }
+
+                if (context.WorkspaceId.Value != workspaceId)
+                {
+                    return Results.Forbid();
+                }
+
+                try
+                {
+                    var result = await reviewDecisionService.AssignReviewerAsync(
+                        new EvidenceReviewerAssignmentCommand(
+                            reviewId,
+                            request.ReviewerSubject,
+                            request.Role,
+                            ResolveIdempotencyKey(httpContext, request.IdempotencyKey)),
+                        cancellationToken);
+
+                    return Results.Created(
+                        $"/api/v1/workspaces/{workspaceId:D}/evidence-reviews/{result.ReviewId:D}/assignments/{result.AssignmentId:D}",
+                        new EvidenceReviewerAssignmentApiResponse(
+                            result.AssignmentId,
+                            result.ReviewId,
+                            result.ReviewerSubject,
+                            result.Role,
+                            result.IdempotentReplay));
+                }
+                catch (Exception exception) when (exception is EvidenceReviewDecisionValidationException
+                    or EvidenceReviewDecisionConflictException
+                    or EvidenceReviewDecisionForbiddenException
+                    or UnauthorizedAccessException)
+                {
+                    return ToReviewDecisionError(exception);
+                }
+            })
+            .RequireAuthorization("WorkspaceScoped")
+            .WithMetadata(RequiresWorkspaceScopeMetadata.Instance)
+            .WithName("AssignEvidenceReviewer")
+            .WithSummary("Assign explicit Evidence review authority");
+
+        endpoints.MapPost(
+            "/api/v1/workspaces/{workspaceId:guid}/evidence-reviews/{reviewId:guid}/candidate-decisions",
+            async (
+                Guid workspaceId,
+                Guid reviewId,
+                EvidenceCandidateDecisionApiRequest request,
+                HttpContext httpContext,
+                IRequestContextAccessor contextAccessor,
+                IEvidenceReviewDecisionService reviewDecisionService,
+                CancellationToken cancellationToken) =>
+            {
+                var context = contextAccessor.Current;
+                if (context is null)
+                {
+                    return Results.Problem(
+                        title: "Tenant and workspace context is required.",
+                        statusCode: StatusCodes.Status400BadRequest);
+                }
+
+                if (context.WorkspaceId.Value != workspaceId)
+                {
+                    return Results.Forbid();
+                }
+
+                try
+                {
+                    var result = await reviewDecisionService.CreateCandidateDecisionAsync(
+                        new EvidenceCandidateDecisionCommand(
+                            reviewId,
+                            request.DecisionType,
+                            request.Summary,
+                            request.SupersedesDecisionId,
+                            ResolveIdempotencyKey(httpContext, request.IdempotencyKey)),
+                        cancellationToken);
+
+                    return Results.Created(
+                        $"/api/v1/workspaces/{workspaceId:D}/evidence-reviews/{result.ReviewId:D}/candidate-decisions/{result.CandidateDecisionId:D}",
+                        new EvidenceCandidateDecisionApiResponse(
+                            result.CandidateDecisionId,
+                            result.ReviewId,
+                            result.DecisionType,
+                            result.State,
+                            result.Version,
+                            result.IdempotentReplay));
+                }
+                catch (Exception exception) when (exception is EvidenceReviewDecisionValidationException
+                    or EvidenceReviewDecisionConflictException
+                    or EvidenceReviewDecisionForbiddenException
+                    or UnauthorizedAccessException)
+                {
+                    return ToReviewDecisionError(exception);
+                }
+            })
+            .RequireAuthorization("WorkspaceScoped")
+            .WithMetadata(RequiresWorkspaceScopeMetadata.Instance)
+            .WithName("CreateEvidenceCandidateDecision")
+            .WithSummary("Create a candidate decision for Evidence review");
+
+        endpoints.MapPost(
+            "/api/v1/workspaces/{workspaceId:guid}/evidence-reviews/{reviewId:guid}/candidate-decisions/{candidateDecisionId:guid}/accept",
+            async (
+                Guid workspaceId,
+                Guid reviewId,
+                Guid candidateDecisionId,
+                EvidenceApplyDecisionApiRequest request,
+                HttpContext httpContext,
+                IRequestContextAccessor contextAccessor,
+                IEvidenceReviewDecisionService reviewDecisionService,
+                CancellationToken cancellationToken) =>
+                await ApplyReviewDecisionAsync(
+                    workspaceId,
+                    reviewId,
+                    candidateDecisionId,
+                    "Accept",
+                    request,
+                    httpContext,
+                    contextAccessor,
+                    reviewDecisionService,
+                    cancellationToken))
+            .RequireAuthorization("WorkspaceScoped")
+            .WithMetadata(RequiresWorkspaceScopeMetadata.Instance)
+            .WithName("AcceptEvidenceCandidateDecision")
+            .WithSummary("Apply an authoritative accept decision");
+
+        endpoints.MapPost(
+            "/api/v1/workspaces/{workspaceId:guid}/evidence-reviews/{reviewId:guid}/candidate-decisions/{candidateDecisionId:guid}/reject",
+            async (
+                Guid workspaceId,
+                Guid reviewId,
+                Guid candidateDecisionId,
+                EvidenceApplyDecisionApiRequest request,
+                HttpContext httpContext,
+                IRequestContextAccessor contextAccessor,
+                IEvidenceReviewDecisionService reviewDecisionService,
+                CancellationToken cancellationToken) =>
+                await ApplyReviewDecisionAsync(
+                    workspaceId,
+                    reviewId,
+                    candidateDecisionId,
+                    "Reject",
+                    request,
+                    httpContext,
+                    contextAccessor,
+                    reviewDecisionService,
+                    cancellationToken))
+            .RequireAuthorization("WorkspaceScoped")
+            .WithMetadata(RequiresWorkspaceScopeMetadata.Instance)
+            .WithName("RejectEvidenceCandidateDecision")
+            .WithSummary("Apply an authoritative reject decision");
+
+        endpoints.MapPost(
+            "/api/v1/workspaces/{workspaceId:guid}/evidence-reviews/{reviewId:guid}/candidate-decisions/{candidateDecisionId:guid}/request-correction",
+            async (
+                Guid workspaceId,
+                Guid reviewId,
+                Guid candidateDecisionId,
+                EvidenceApplyDecisionApiRequest request,
+                HttpContext httpContext,
+                IRequestContextAccessor contextAccessor,
+                IEvidenceReviewDecisionService reviewDecisionService,
+                CancellationToken cancellationToken) =>
+                await ApplyReviewDecisionAsync(
+                    workspaceId,
+                    reviewId,
+                    candidateDecisionId,
+                    "RequestCorrection",
+                    request,
+                    httpContext,
+                    contextAccessor,
+                    reviewDecisionService,
+                    cancellationToken))
+            .RequireAuthorization("WorkspaceScoped")
+            .WithMetadata(RequiresWorkspaceScopeMetadata.Instance)
+            .WithName("RequestEvidenceCorrection")
+            .WithSummary("Apply an authoritative correction request");
+
+        endpoints.MapPost(
+            "/api/v1/workspaces/{workspaceId:guid}/evidence-reviews/{reviewId:guid}/candidate-decisions/{candidateDecisionId:guid}/supersede",
+            async (
+                Guid workspaceId,
+                Guid reviewId,
+                Guid candidateDecisionId,
+                EvidenceApplyDecisionApiRequest request,
+                HttpContext httpContext,
+                IRequestContextAccessor contextAccessor,
+                IEvidenceReviewDecisionService reviewDecisionService,
+                CancellationToken cancellationToken) =>
+                await ApplyReviewDecisionAsync(
+                    workspaceId,
+                    reviewId,
+                    candidateDecisionId,
+                    "Supersede",
+                    request,
+                    httpContext,
+                    contextAccessor,
+                    reviewDecisionService,
+                    cancellationToken))
+            .RequireAuthorization("WorkspaceScoped")
+            .WithMetadata(RequiresWorkspaceScopeMetadata.Instance)
+            .WithName("SupersedeEvidenceDecision")
+            .WithSummary("Apply an authoritative supersede decision");
+
         return endpoints;
+    }
+
+    private static async Task<IResult> ApplyReviewDecisionAsync(
+        Guid workspaceId,
+        Guid reviewId,
+        Guid candidateDecisionId,
+        string decisionType,
+        EvidenceApplyDecisionApiRequest request,
+        HttpContext httpContext,
+        IRequestContextAccessor contextAccessor,
+        IEvidenceReviewDecisionService reviewDecisionService,
+        CancellationToken cancellationToken)
+    {
+        var context = contextAccessor.Current;
+        if (context is null)
+        {
+            return Results.Problem(
+                title: "Tenant and workspace context is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (context.WorkspaceId.Value != workspaceId)
+        {
+            return Results.Forbid();
+        }
+
+        try
+        {
+            var result = await reviewDecisionService.ApplyDecisionAsync(
+                new EvidenceApplyDecisionCommand(
+                    reviewId,
+                    candidateDecisionId,
+                    decisionType,
+                    request.ExpectedCandidateVersion,
+                    request.Reason,
+                    ResolveIdempotencyKey(httpContext, request.IdempotencyKey)),
+                cancellationToken);
+
+            return Results.Ok(new EvidenceAppliedDecisionApiResponse(
+                result.ReviewId,
+                result.CandidateDecisionId,
+                result.ReviewState,
+                result.CandidateState,
+                result.CandidateVersion,
+                result.DecidedAt,
+                result.IdempotentReplay));
+        }
+        catch (Exception exception) when (exception is EvidenceReviewDecisionValidationException
+            or EvidenceReviewDecisionConflictException
+            or EvidenceReviewDecisionForbiddenException
+            or UnauthorizedAccessException)
+        {
+            return ToReviewDecisionError(exception);
+        }
+    }
+
+    private static IResult ToReviewDecisionError(Exception exception)
+    {
+        return exception switch
+        {
+            EvidenceReviewDecisionValidationException validation => Results.ValidationProblem(validation.Errors),
+            EvidenceReviewDecisionConflictException conflict => Results.Problem(
+                title: "Evidence review decision operation conflict.",
+                detail: conflict.Message,
+                statusCode: StatusCodes.Status409Conflict),
+            EvidenceReviewDecisionForbiddenException => Results.Forbid(),
+            UnauthorizedAccessException unauthorized => Results.Problem(
+                title: "Evidence review decision operation is not authorized.",
+                detail: unauthorized.Message,
+                statusCode: StatusCodes.Status401Unauthorized),
+            _ => throw exception
+        };
     }
 
     private static string? ResolveIdempotencyKey(HttpContext httpContext, EvidenceRegistrationApiRequest request)
@@ -309,4 +659,58 @@ public sealed record EvidenceContentReceivedApiResponse(
     long ActualSize,
     string ActualSha256Hash,
     DateTimeOffset VerifiedAt,
+    bool IdempotentReplay);
+
+public sealed record EvidenceReviewRequestApiRequest(
+    string ReviewKind,
+    DateTimeOffset? DueAt,
+    string? IdempotencyKey);
+
+public sealed record EvidenceReviewRequestApiResponse(
+    Guid ReviewId,
+    string EvidenceId,
+    string EvidenceVersionId,
+    string State,
+    int Version,
+    DateTimeOffset RequestedAt,
+    bool IdempotentReplay);
+
+public sealed record EvidenceReviewerAssignmentApiRequest(
+    string ReviewerSubject,
+    string Role,
+    string? IdempotencyKey);
+
+public sealed record EvidenceReviewerAssignmentApiResponse(
+    Guid AssignmentId,
+    Guid ReviewId,
+    string ReviewerSubject,
+    string Role,
+    bool IdempotentReplay);
+
+public sealed record EvidenceCandidateDecisionApiRequest(
+    string DecisionType,
+    string Summary,
+    Guid? SupersedesDecisionId,
+    string? IdempotencyKey);
+
+public sealed record EvidenceCandidateDecisionApiResponse(
+    Guid CandidateDecisionId,
+    Guid ReviewId,
+    string DecisionType,
+    string State,
+    int Version,
+    bool IdempotentReplay);
+
+public sealed record EvidenceApplyDecisionApiRequest(
+    int ExpectedCandidateVersion,
+    string? Reason,
+    string? IdempotencyKey);
+
+public sealed record EvidenceAppliedDecisionApiResponse(
+    Guid ReviewId,
+    Guid CandidateDecisionId,
+    string ReviewState,
+    string CandidateState,
+    int CandidateVersion,
+    DateTimeOffset DecidedAt,
     bool IdempotentReplay);
