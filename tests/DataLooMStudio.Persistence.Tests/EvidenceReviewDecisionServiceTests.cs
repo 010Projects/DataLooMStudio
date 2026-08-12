@@ -6,9 +6,11 @@ using DataLooMStudio.Infrastructure.RequestContext;
 using DataLooMStudio.Infrastructure.SecurityScanning;
 using DataLooMStudio.Infrastructure.Storage;
 using DataLooMStudio.Modules.Evidence;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Tenancy;
 using DataLooMStudio.Modules.Workspaces;
 using DataLooMStudio.Runtime.Persistence.Evidence;
+using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.Runtime.Persistence.Outbox;
 using DataLooMStudio.Runtime.Persistence.Security;
 using DataLooMStudio.SharedKernel.Abstractions;
@@ -101,7 +103,12 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
     public async Task Candidate_creator_cannot_apply_authoritative_decision()
     {
         var scenario = await CreateAvailableEvidenceAsync("creator-cannot-approve");
-        var review = await CreateReviewWithAssignmentsAsync(scenario, assignReviewer: false, assignApprover: true, reviewerSubject: "candidate-creator");
+        var review = await CreateReviewWithAssignmentsAsync(
+            scenario,
+            assignReviewer: true,
+            assignApprover: true,
+            reviewerSubject: "candidate-creator",
+            approverSubject: "candidate-creator");
         var actorAccessor = CreateRequestContext(scenario.TenantId, scenario.WorkspaceId, "candidate-creator");
         await using var actorDbContext = fixture.CreateDbContext(actorAccessor);
         var actorService = CreateReviewDecisionService(actorDbContext, actorAccessor, scenario.Clock);
@@ -239,30 +246,94 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
         AvailableEvidence scenario,
         bool assignReviewer,
         bool assignApprover,
-        string reviewerSubject = "evidence-reviewer")
+        string reviewerSubject = "evidence-reviewer",
+        string approverSubject = "evidence-approver")
     {
         await using var ownerDbContext = fixture.CreateDbContext(scenario.Accessor);
         var ownerService = CreateReviewDecisionService(ownerDbContext, scenario.Accessor, scenario.Clock);
         var review = await RequestReviewAsync(ownerService, scenario, $"review-{Guid.NewGuid():N}");
+        await SeedProductAuthorityAsync(
+            scenario,
+            review.ReviewId,
+            ("evidence-owner", ProductAuthorityPermissions.ManageEvidenceReviewAssignments),
+            (reviewerSubject, ProductAuthorityPermissions.CreateEvidenceCandidateDecision),
+            (approverSubject, ProductAuthorityPermissions.ApplyEvidenceDecision));
 
         if (assignReviewer)
         {
             await ownerService.AssignReviewerAsync(
-                new EvidenceReviewerAssignmentCommand(review.ReviewId, reviewerSubject, EvidenceReviewAuthorityRoles.Reviewer, $"assign-reviewer-{Guid.NewGuid():N}"),
+                new EvidenceReviewerAssignmentCommand(review.ReviewId, reviewerSubject, ProductAuthorityPermissions.CreateEvidenceCandidateDecision, $"assign-reviewer-{Guid.NewGuid():N}"),
                 CancellationToken.None);
         }
 
         if (assignApprover)
         {
-            var approverSubject = reviewerSubject == "candidate-creator"
-                ? reviewerSubject
-                : "evidence-approver";
             await ownerService.AssignReviewerAsync(
-                new EvidenceReviewerAssignmentCommand(review.ReviewId, approverSubject, EvidenceReviewAuthorityRoles.Approver, $"assign-approver-{Guid.NewGuid():N}"),
+                new EvidenceReviewerAssignmentCommand(review.ReviewId, approverSubject, ProductAuthorityPermissions.ApplyEvidenceDecision, $"assign-approver-{Guid.NewGuid():N}"),
                 CancellationToken.None);
         }
 
         return review;
+    }
+
+    private async Task SeedProductAuthorityAsync(
+        AvailableEvidence scenario,
+        Guid reviewId,
+        params (string Subject, string PermissionKey)[] assignments)
+    {
+        await using var dbContext = fixture.CreateDbContext(scenario.Accessor);
+        foreach (var assignment in assignments.Distinct())
+        {
+            var actor = dbContext.ProductActors.Local
+                .SingleOrDefault(item => item.Subject == assignment.Subject);
+            actor ??= await dbContext.ProductActors
+                .SingleOrDefaultAsync(item => item.Subject == assignment.Subject);
+            if (actor is null)
+            {
+                actor = new ProductActor
+                {
+                    TenantId = scenario.TenantId,
+                    WorkspaceId = scenario.WorkspaceId,
+                    Subject = assignment.Subject,
+                    DisplayName = assignment.Subject,
+                    State = ProductActorStates.Active,
+                    CreatedBy = "authority-test-seeder",
+                    CreatedAt = scenario.Clock.UtcNow
+                };
+                dbContext.ProductActors.Add(actor);
+            }
+
+            var resourceId = assignment.PermissionKey == ProductAuthorityPermissions.ManageEvidenceReviewAssignments
+                ? ProductAuthorityResourceIds.Any
+                : reviewId.ToString("D");
+            var exists = await dbContext.ProductPermissionAssignments.AnyAsync(item =>
+                item.ActorSubject == assignment.Subject
+                && item.PermissionKey == assignment.PermissionKey
+                && item.ResourceType == ProductAuthorityResourceTypes.EvidenceReview
+                && item.ResourceId == resourceId
+                && item.State == ProductPermissionAssignmentStates.Active);
+            if (!exists)
+            {
+                dbContext.ProductPermissionAssignments.Add(new ProductPermissionAssignment
+                {
+                    TenantId = scenario.TenantId,
+                    WorkspaceId = scenario.WorkspaceId,
+                    ActorId = actor.Id,
+                    ActorSubject = assignment.Subject,
+                    PermissionKey = assignment.PermissionKey,
+                    ResourceType = ProductAuthorityResourceTypes.EvidenceReview,
+                    ResourceId = resourceId,
+                    State = ProductPermissionAssignmentStates.Active,
+                    AssignedBy = "authority-test-seeder",
+                    AssignedAt = scenario.Clock.UtcNow,
+                    EffectiveFrom = scenario.Clock.UtcNow,
+                    IdempotencyKey = $"authority-{Guid.NewGuid():N}",
+                    RequestHash = Sha256(Encoding.UTF8.GetBytes($"{assignment.Subject}|{assignment.PermissionKey}|{resourceId}"))
+                });
+            }
+        }
+
+        await dbContext.SaveChangesAsync();
     }
 
     private async Task<EvidenceCandidateDecisionResult> CreateCandidateAsync(
@@ -425,6 +496,7 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
             accessor,
             clock,
             outboxWriter ?? new EfOutboxWriter(dbContext),
+            new ProductAuthorityService(dbContext, accessor, clock),
             rls);
     }
 

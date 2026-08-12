@@ -2,16 +2,16 @@ namespace DataLooMStudio.Modules.Evidence;
 
 public static class EvidenceReviewPolicy
 {
-    public static EvidenceReviewPolicyDecision CanAssignReviewer(string reviewerSubject, string role)
+    public static EvidenceReviewPolicyDecision CanRecordReviewAssignment(string reviewerSubject, string permissionKey)
     {
         if (!IsHumanActor(reviewerSubject))
         {
             return EvidenceReviewPolicyDecision.Denied("Reviewer assignment requires a named human subject.");
         }
 
-        if (!EvidenceReviewAuthorityRoles.IsEvidenceReviewRole(role))
+        if (string.IsNullOrWhiteSpace(permissionKey))
         {
-            return EvidenceReviewPolicyDecision.Denied("Only explicit Evidence reviewer or approver roles grant review authority.");
+            return EvidenceReviewPolicyDecision.Denied("Review assignment requires a canonical permission key.");
         }
 
         return EvidenceReviewPolicyDecision.Allowed();
@@ -37,9 +37,9 @@ public static class EvidenceReviewPolicy
             return EvidenceReviewPolicyDecision.Denied("Only the assigned Evidence reviewer may create a candidate decision.");
         }
 
-        if (!EvidenceReviewAuthorityRoles.IsEvidenceReviewRole(assignment.Role))
+        if (string.IsNullOrWhiteSpace(assignment.PermissionKey))
         {
-            return EvidenceReviewPolicyDecision.Denied("Assignment role does not grant Evidence review authority.");
+            return EvidenceReviewPolicyDecision.Denied("Assignment does not name a canonical permission key.");
         }
 
         return EvidenceReviewPolicyDecision.Allowed();

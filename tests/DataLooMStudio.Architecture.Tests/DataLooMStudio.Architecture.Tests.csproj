@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\Runtime\DataLooMStudio.Runtime\DataLooMStudio.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Runtime\DataLooMStudio.Runtime.Persistence\DataLooMStudio.Runtime.Persistence.csproj" />
     <ProjectReference Include="..\..\src\Modules\Tenancy\DataLooMStudio.Modules.Tenancy\DataLooMStudio.Modules.Tenancy.csproj" />
+    <ProjectReference Include="..\..\src\Modules\IdentityAccess\DataLooMStudio.Modules.IdentityAccess\DataLooMStudio.Modules.IdentityAccess.csproj" />
     <ProjectReference Include="..\..\src\Modules\Workspaces\DataLooMStudio.Modules.Workspaces\DataLooMStudio.Modules.Workspaces.csproj" />
     <ProjectReference Include="..\..\src\Modules\Evidence\DataLooMStudio.Modules.Evidence\DataLooMStudio.Modules.Evidence.csproj" />
     <ProjectReference Include="..\..\src\Modules\Lineage\DataLooMStudio.Modules.Lineage\DataLooMStudio.Modules.Lineage.csproj" />

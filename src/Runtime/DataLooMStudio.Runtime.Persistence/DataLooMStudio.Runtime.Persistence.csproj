@@ -4,6 +4,7 @@
     <ProjectReference Include="..\..\BuildingBlocks\DataLooMStudio.SharedKernel\DataLooMStudio.SharedKernel.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\DataLooMStudio.Infrastructure\DataLooMStudio.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Tenancy\DataLooMStudio.Modules.Tenancy\DataLooMStudio.Modules.Tenancy.csproj" />
+    <ProjectReference Include="..\..\Modules\IdentityAccess\DataLooMStudio.Modules.IdentityAccess\DataLooMStudio.Modules.IdentityAccess.csproj" />
     <ProjectReference Include="..\..\Modules\Workspaces\DataLooMStudio.Modules.Workspaces\DataLooMStudio.Modules.Workspaces.csproj" />
     <ProjectReference Include="..\..\Modules\Evidence\DataLooMStudio.Modules.Evidence\DataLooMStudio.Modules.Evidence.csproj" />
     <ProjectReference Include="..\..\Modules\Lineage\DataLooMStudio.Modules.Lineage\DataLooMStudio.Modules.Lineage.csproj" />

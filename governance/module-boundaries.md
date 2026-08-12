@@ -7,7 +7,9 @@ DataLooM Studio uses a modular monolith. Modules communicate through runtime com
 - `src/Modules/Operations` is prohibited.
 - `AiGovernance` is a governance boundary only and must not execute models, prompts, agents, tools, or external AI calls.
 - Tenant and workspace identifiers are immutable request scope inputs for workspace-scoped endpoints.
+- IdentityAccess owns the bounded Product actor, canonical permission assignment, and separation-of-duty authority policy used by Evidence Review/Decision.
 - Evidence records carry immutable lineage IDs and content hashes.
+- Evidence owns Evidence review and decision state, but Evidence-local reviewer assignment rows must store canonical IdentityAccess permission keys rather than Product-wide role taxonomy.
 - Lineage relationships are versioned rather than overwritten.
 - Lifecycle owns state transitions.
 - Workflows own orchestration and run tracking, not lifecycle state.
@@ -22,7 +24,7 @@ DataLooM Studio uses a modular monolith. Modules communicate through runtime com
 
 ## Persistence
 
-The EF Core model lives under `src/Runtime/DataLooMStudio.Runtime.Persistence`. It uses separate PostgreSQL schemas for tenancy, workspace, evidence, lineage, audit, retention, commercial, lifecycle, workflow, AI governance, and foundation outbox data. Tenant and workspace scoped entities have query filters driven by the request context accessor, but query filters are not treated as sufficient isolation.
+The EF Core model lives under `src/Runtime/DataLooMStudio.Runtime.Persistence`. It uses separate PostgreSQL schemas for tenancy, workspace, identity access, evidence, lineage, audit, retention, commercial, lifecycle, workflow, AI governance, and foundation outbox data. Tenant and workspace scoped entities have query filters driven by the request context accessor, but query filters are not treated as sufficient isolation.
 
 PostgreSQL row-level security is authoritative for tenant and workspace isolation. Tenant and workspace values are set at transaction scope through `app.tenant_id` and `app.workspace_id`; missing or invalid context must deny access and pooled connection context must not leak across transactions.
 

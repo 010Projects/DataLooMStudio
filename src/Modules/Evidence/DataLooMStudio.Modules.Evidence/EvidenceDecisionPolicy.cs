@@ -4,7 +4,6 @@ public static class EvidenceDecisionPolicy
 {
     public static EvidenceReviewPolicyDecision CanApplyAuthoritativeDecision(
         string actor,
-        EvidenceReviewerAssignment? assignment,
         EvidenceReviewRequest review,
         EvidenceCandidateDecision candidate,
         string decisionType,
@@ -38,19 +37,6 @@ public static class EvidenceDecisionPolicy
         if (EvidenceReviewStates.IsTerminal(review.State))
         {
             return EvidenceReviewPolicyDecision.Denied("Evidence review is already in an authoritative final state.");
-        }
-
-        if (candidate.CreatedBy.Equals(actor, StringComparison.Ordinal))
-        {
-            return EvidenceReviewPolicyDecision.Denied("The candidate decision creator cannot apply the authoritative decision.");
-        }
-
-        if (assignment is null
-            || !assignment.IsActive
-            || !assignment.ReviewerSubject.Equals(actor, StringComparison.Ordinal)
-            || !assignment.Role.Equals(EvidenceReviewAuthorityRoles.Approver, StringComparison.Ordinal))
-        {
-            return EvidenceReviewPolicyDecision.Denied("Only an assigned Evidence approver may apply an authoritative decision.");
         }
 
         return EvidenceReviewPolicyDecision.Allowed();

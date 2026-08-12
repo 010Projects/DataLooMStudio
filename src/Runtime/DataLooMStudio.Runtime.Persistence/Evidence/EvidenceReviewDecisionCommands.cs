@@ -12,7 +12,7 @@ public sealed record EvidenceReviewRequestCommand(
 public sealed record EvidenceReviewerAssignmentCommand(
     Guid ReviewId,
     string ReviewerSubject,
-    string Role,
+    string PermissionKey,
     string? IdempotencyKey);
 
 public sealed record EvidenceCandidateDecisionCommand(

@@ -317,7 +317,7 @@ public static class EvidenceEndpoints
                         new EvidenceReviewerAssignmentCommand(
                             reviewId,
                             request.ReviewerSubject,
-                            request.Role,
+                            request.PermissionKey,
                             ResolveIdempotencyKey(httpContext, request.IdempotencyKey)),
                         cancellationToken);
 
@@ -327,7 +327,7 @@ public static class EvidenceEndpoints
                             result.AssignmentId,
                             result.ReviewId,
                             result.ReviewerSubject,
-                            result.Role,
+                            result.PermissionKey,
                             result.IdempotentReplay));
                 }
                 catch (Exception exception) when (exception is EvidenceReviewDecisionValidationException
@@ -340,8 +340,8 @@ public static class EvidenceEndpoints
             })
             .RequireAuthorization("WorkspaceScoped")
             .WithMetadata(RequiresWorkspaceScopeMetadata.Instance)
-            .WithName("AssignEvidenceReviewer")
-            .WithSummary("Assign explicit Evidence review authority");
+            .WithName("AssignEvidenceReviewPermission")
+            .WithSummary("Assign a reviewer to an Evidence review under a canonical Product permission key");
 
         endpoints.MapPost(
             "/api/v1/workspaces/{workspaceId:guid}/evidence-reviews/{reviewId:guid}/candidate-decisions",
@@ -677,14 +677,14 @@ public sealed record EvidenceReviewRequestApiResponse(
 
 public sealed record EvidenceReviewerAssignmentApiRequest(
     string ReviewerSubject,
-    string Role,
+    string PermissionKey,
     string? IdempotencyKey);
 
 public sealed record EvidenceReviewerAssignmentApiResponse(
     Guid AssignmentId,
     Guid ReviewId,
     string ReviewerSubject,
-    string Role,
+    string PermissionKey,
     bool IdempotentReplay);
 
 public sealed record EvidenceCandidateDecisionApiRequest(

@@ -1,9 +1,9 @@
 using DataLooMStudio.SharedKernel.Abstractions;
 using DataLooMStudio.SharedKernel.Identity;
 
-namespace DataLooMStudio.Modules.Evidence;
+namespace DataLooMStudio.Modules.IdentityAccess;
 
-public sealed class EvidenceReviewerAssignment : IWorkspaceScoped
+public sealed class ProductPermissionAssignment : IWorkspaceScoped
 {
     public Guid Id { get; init; } = Guid.NewGuid();
 
@@ -11,21 +11,25 @@ public sealed class EvidenceReviewerAssignment : IWorkspaceScoped
 
     public WorkspaceId WorkspaceId { get; init; }
 
-    public Guid ReviewRequestId { get; init; }
+    public Guid ActorId { get; init; }
 
-    public string ReviewerSubject { get; init; } = string.Empty;
+    public string ActorSubject { get; init; } = string.Empty;
 
     public string PermissionKey { get; init; } = string.Empty;
+
+    public string ResourceType { get; init; } = ProductAuthorityResourceTypes.Any;
+
+    public string ResourceId { get; init; } = ProductAuthorityResourceIds.Any;
+
+    public string State { get; set; } = ProductPermissionAssignmentStates.Active;
 
     public string AssignedBy { get; init; } = string.Empty;
 
     public DateTimeOffset AssignedAt { get; init; }
 
-    public bool IsActive { get; set; } = true;
+    public DateTimeOffset? EffectiveFrom { get; init; }
 
-    public DateTimeOffset? RemovedAt { get; set; }
-
-    public string? RemovedBy { get; set; }
+    public DateTimeOffset? EffectiveTo { get; set; }
 
     public string IdempotencyKey { get; init; } = string.Empty;
 

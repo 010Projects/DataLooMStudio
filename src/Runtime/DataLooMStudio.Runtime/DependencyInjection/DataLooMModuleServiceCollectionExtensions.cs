@@ -2,6 +2,7 @@ using DataLooMStudio.Modules.AiGovernance;
 using DataLooMStudio.Modules.Audit;
 using DataLooMStudio.Modules.Commercial;
 using DataLooMStudio.Modules.Evidence;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Lifecycle;
 using DataLooMStudio.Modules.Lineage;
 using DataLooMStudio.Modules.Retention;
@@ -19,6 +20,7 @@ public static class DataLooMModuleServiceCollectionExtensions
     public static IServiceCollection AddDataLooMModules(this IServiceCollection services)
     {
         services.AddSingleton<IDataLooMModule, TenancyModule>();
+        services.AddSingleton<IDataLooMModule, IdentityAccessModule>();
         services.AddSingleton<IDataLooMModule, WorkspacesModule>();
         services.AddSingleton<IDataLooMModule, EvidenceModule>();
         services.AddSingleton<IDataLooMModule, LineageModule>();

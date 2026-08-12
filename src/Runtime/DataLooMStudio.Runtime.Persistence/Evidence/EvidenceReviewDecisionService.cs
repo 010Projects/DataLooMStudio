@@ -6,8 +6,10 @@ using System.Text.RegularExpressions;
 using DataLooMStudio.Infrastructure.Outbox;
 using DataLooMStudio.Modules.Audit;
 using DataLooMStudio.Modules.Evidence;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Lineage;
 using DataLooMStudio.Modules.Workspaces;
+using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.Runtime.Persistence.Security;
 using DataLooMStudio.SharedKernel.Abstractions;
 using DataLooMStudio.SharedKernel.Integrity;
@@ -22,6 +24,7 @@ public sealed class EvidenceReviewDecisionService(
     IRequestContextAccessor requestContextAccessor,
     IClock clock,
     IOutboxWriter outboxWriter,
+    IProductAuthorityService productAuthorityService,
     PostgresRlsSessionContext rlsSessionContext) : IEvidenceReviewDecisionService
 {
     private const string Available = "Available";
@@ -122,10 +125,15 @@ public sealed class EvidenceReviewDecisionService(
         CancellationToken cancellationToken)
     {
         ValidateReviewerAssignment(command);
-        var policy = EvidenceReviewPolicy.CanAssignReviewer(command.ReviewerSubject.Trim(), command.Role.Trim());
+        var policy = EvidenceReviewPolicy.CanRecordReviewAssignment(command.ReviewerSubject.Trim(), command.PermissionKey.Trim());
         if (!policy.Succeeded)
         {
             throw new EvidenceReviewDecisionForbiddenException(policy.Reason!);
+        }
+
+        if (!ProductAuthorityPermissions.IsEvidenceReviewAssignmentPermission(command.PermissionKey.Trim()))
+        {
+            throw new EvidenceReviewDecisionForbiddenException("Evidence review assignments must use a canonical Evidence review permission key.");
         }
 
         var context = RequireContext();
@@ -133,8 +141,8 @@ public sealed class EvidenceReviewDecisionService(
         var now = clock.UtcNow;
         var idempotencyKey = NormalizeIdempotencyKey(
             command.IdempotencyKey,
-            $"derived:{Hash($"assignment|{command.ReviewId}|{command.ReviewerSubject}|{command.Role}")}");
-        var requestHash = Hash($"assignment|{command.ReviewId}|{command.ReviewerSubject.Trim()}|{command.Role.Trim()}");
+            $"derived:{Hash($"assignment|{command.ReviewId}|{command.ReviewerSubject}|{command.PermissionKey}")}");
+        var requestHash = Hash($"assignment|{command.ReviewId}|{command.ReviewerSubject.Trim()}|{command.PermissionKey.Trim()}");
         var executionStrategy = dbContext.Database.CreateExecutionStrategy();
 
         return await executionStrategy.ExecuteAsync(async () =>
@@ -144,6 +152,16 @@ public sealed class EvidenceReviewDecisionService(
 
             await EnsureWorkspaceActiveAsync(context, cancellationToken);
             var review = await LoadReviewAsync(command.ReviewId, cancellationToken);
+            await RequireProductPermissionAsync(
+                actor,
+                ProductAuthorityPermissions.ManageEvidenceReviewAssignments,
+                review.Id,
+                cancellationToken);
+            await RequireProductPermissionAsync(
+                command.ReviewerSubject.Trim(),
+                command.PermissionKey.Trim(),
+                review.Id,
+                cancellationToken);
             if (EvidenceReviewStates.IsTerminal(review.State))
             {
                 throw new EvidenceReviewDecisionConflictException("Cannot assign a reviewer after an authoritative decision has been applied.");
@@ -169,12 +187,12 @@ public sealed class EvidenceReviewDecisionService(
                 .AnyAsync(assignment =>
                     assignment.ReviewRequestId == review.Id
                     && assignment.ReviewerSubject == command.ReviewerSubject.Trim()
-                    && assignment.Role == command.Role.Trim()
+                    && assignment.PermissionKey == command.PermissionKey.Trim()
                     && assignment.IsActive,
                     cancellationToken);
             if (activeDuplicate)
             {
-                throw new EvidenceReviewDecisionConflictException("Reviewer is already actively assigned with this Evidence review role.");
+                throw new EvidenceReviewDecisionConflictException("Reviewer is already actively assigned with this Evidence review permission key.");
             }
 
             var assignment = new EvidenceReviewerAssignment
@@ -183,7 +201,7 @@ public sealed class EvidenceReviewDecisionService(
                 WorkspaceId = context.WorkspaceId,
                 ReviewRequestId = review.Id,
                 ReviewerSubject = command.ReviewerSubject.Trim(),
-                Role = command.Role.Trim(),
+                PermissionKey = command.PermissionKey.Trim(),
                 AssignedBy = actor,
                 AssignedAt = now,
                 IdempotencyKey = idempotencyKey,
@@ -199,7 +217,7 @@ public sealed class EvidenceReviewDecisionService(
             {
                 assignmentId = assignment.Id,
                 reviewerSubjectHash = Hash(assignment.ReviewerSubject),
-                assignment.Role
+                assignment.PermissionKey
             });
             AddLineage(context, actor, review.LineageId, review.LineageId, "ReviewerAssigned", await GetNextLineageVersionAsync(review.LineageId, cancellationToken), now, $"evidence-review-assignment:{assignment.Id}");
             await AddOutboxAsync(context, "EvidenceReviewerAssigned", now, new
@@ -208,7 +226,7 @@ public sealed class EvidenceReviewDecisionService(
                 aggregateId = review.Id.ToString("D"),
                 reviewId = review.Id,
                 assignmentId = assignment.Id,
-                role = assignment.Role,
+                permissionKey = assignment.PermissionKey,
                 tenantId = context.TenantId.ToString(),
                 workspaceId = context.WorkspaceId.ToString()
             }, cancellationToken);
@@ -241,12 +259,27 @@ public sealed class EvidenceReviewDecisionService(
 
             await EnsureWorkspaceActiveAsync(context, cancellationToken);
             var review = await LoadReviewAsync(command.ReviewId, cancellationToken);
-            var assignment = await LoadActiveAssignmentAsync(review.Id, actor, cancellationToken);
+            var assignment = await LoadActiveAssignmentAsync(
+                review.Id,
+                actor,
+                ProductAuthorityPermissions.CreateEvidenceCandidateDecision,
+                cancellationToken);
             var policy = EvidenceReviewPolicy.CanCreateCandidate(actor, assignment, review);
             if (!policy.Succeeded)
             {
                 throw new EvidenceReviewDecisionForbiddenException(policy.Reason!);
             }
+
+            if (!assignment!.PermissionKey.Equals(ProductAuthorityPermissions.CreateEvidenceCandidateDecision, StringComparison.Ordinal))
+            {
+                throw new EvidenceReviewDecisionForbiddenException("Review assignment does not grant candidate-decision creation for this review.");
+            }
+
+            await RequireProductPermissionAsync(
+                actor,
+                ProductAuthorityPermissions.CreateEvidenceCandidateDecision,
+                review.Id,
+                cancellationToken);
 
             var existing = await dbContext.EvidenceCandidateDecisions
                 .SingleOrDefaultAsync(candidate =>
@@ -354,10 +387,8 @@ public sealed class EvidenceReviewDecisionService(
                 return ToAppliedDecisionResult(review, candidate, candidate.AppliedAt.Value, idempotentReplay: true);
             }
 
-            var assignment = await LoadActiveAssignmentAsync(review.Id, actor, cancellationToken);
             var policy = EvidenceDecisionPolicy.CanApplyAuthoritativeDecision(
                 actor,
-                assignment,
                 review,
                 candidate,
                 command.DecisionType,
@@ -366,6 +397,29 @@ public sealed class EvidenceReviewDecisionService(
             {
                 ThrowPolicyDenied(policy.Reason!);
             }
+
+            var assignment = await LoadActiveAssignmentAsync(
+                review.Id,
+                actor,
+                ProductAuthorityPermissions.ApplyEvidenceDecision,
+                cancellationToken);
+            if (assignment is null
+                || !assignment.PermissionKey.Equals(ProductAuthorityPermissions.ApplyEvidenceDecision, StringComparison.Ordinal))
+            {
+                throw new EvidenceReviewDecisionForbiddenException("Review assignment does not grant authoritative decision application for this review.");
+            }
+
+            await RequireProductPermissionAsync(
+                actor,
+                ProductAuthorityPermissions.ApplyEvidenceDecision,
+                review.Id,
+                cancellationToken);
+
+            await RequireSeparationOfDutyAsync(
+                actor,
+                candidate.CreatedBy,
+                "the same actor from creating and applying the Evidence decision",
+                cancellationToken);
 
             if (command.DecisionType is EvidenceDecisionTypes.Reject or EvidenceDecisionTypes.RequestCorrection
                 && string.IsNullOrWhiteSpace(command.Reason))
@@ -494,15 +548,53 @@ public sealed class EvidenceReviewDecisionService(
     private async Task<EvidenceReviewerAssignment?> LoadActiveAssignmentAsync(
         Guid reviewId,
         string actor,
+        string permissionKey,
         CancellationToken cancellationToken)
     {
         return await dbContext.EvidenceReviewerAssignments
             .Where(assignment =>
                 assignment.ReviewRequestId == reviewId
                 && assignment.ReviewerSubject == actor
+                && assignment.PermissionKey == permissionKey
                 && assignment.IsActive)
             .OrderByDescending(assignment => assignment.AssignedAt)
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task RequireProductPermissionAsync(
+        string actor,
+        string permissionKey,
+        Guid reviewId,
+        CancellationToken cancellationToken)
+    {
+        var result = await productAuthorityService.EvaluatePermissionAsync(
+            new ProductAuthorityEvaluationRequest(
+                actor,
+                permissionKey,
+                ProductAuthorityResourceTypes.EvidenceReview,
+                reviewId.ToString("D")),
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            throw new EvidenceReviewDecisionForbiddenException(result.Reason!);
+        }
+    }
+
+    private async Task RequireSeparationOfDutyAsync(
+        string actor,
+        string conflictingActor,
+        string dutyConflict,
+        CancellationToken cancellationToken)
+    {
+        var result = await productAuthorityService.EvaluateSeparationOfDutyAsync(
+            new ProductSeparationOfDutyRequest(actor, conflictingActor, dutyConflict),
+            cancellationToken);
+
+        if (!result.Succeeded)
+        {
+            throw new EvidenceReviewDecisionForbiddenException(result.Reason!);
+        }
     }
 
     private async Task<int> GetNextLineageVersionAsync(LineageId lineageId, CancellationToken cancellationToken)
@@ -603,7 +695,7 @@ public sealed class EvidenceReviewDecisionService(
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
         AddIf(errors, nameof(command.ReviewId), command.ReviewId == Guid.Empty, "Review id is required.");
         AddIf(errors, nameof(command.ReviewerSubject), string.IsNullOrWhiteSpace(command.ReviewerSubject) || command.ReviewerSubject.Length > 256, "Reviewer subject is required and must not exceed 256 characters.");
-        AddIf(errors, nameof(command.Role), string.IsNullOrWhiteSpace(command.Role) || command.Role.Length > 64, "Reviewer role is required and must not exceed 64 characters.");
+        AddIf(errors, nameof(command.PermissionKey), string.IsNullOrWhiteSpace(command.PermissionKey) || command.PermissionKey.Length > 128, "Canonical permission key is required and must not exceed 128 characters.");
         AddIdempotencyError(errors, command.IdempotencyKey);
         ThrowIfInvalid(errors);
     }
@@ -693,7 +785,7 @@ public sealed class EvidenceReviewDecisionService(
             assignment.Id,
             assignment.ReviewRequestId,
             assignment.ReviewerSubject,
-            assignment.Role,
+            assignment.PermissionKey,
             idempotentReplay);
     }
 
