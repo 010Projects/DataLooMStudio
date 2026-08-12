@@ -572,12 +572,15 @@ public sealed class EvidenceReviewDecisionService(
                 actor,
                 permissionKey,
                 ProductAuthorityResourceTypes.EvidenceReview,
-                reviewId.ToString("D")),
+                reviewId.ToString("D"),
+                ProductCapability: ProductAuthorityCapabilities.EvidenceReviewDecision,
+                Action: ActionFor(permissionKey),
+                RequireAuthenticatedActorMatch: actor.Equals(RequireActor(RequireContext()), StringComparison.Ordinal)),
             cancellationToken);
 
         if (!result.Succeeded)
         {
-            throw new EvidenceReviewDecisionForbiddenException(result.Reason!);
+            throw new EvidenceReviewDecisionForbiddenException("Product authority denied.");
         }
     }
 
@@ -593,8 +596,23 @@ public sealed class EvidenceReviewDecisionService(
 
         if (!result.Succeeded)
         {
-            throw new EvidenceReviewDecisionForbiddenException(result.Reason!);
+            throw new EvidenceReviewDecisionForbiddenException("Product authority separation of duty denied.");
         }
+    }
+
+    private static string ActionFor(string permissionKey)
+    {
+        if (permissionKey.Equals(ProductAuthorityPermissions.ManageEvidenceReviewAssignments, StringComparison.Ordinal))
+        {
+            return ProductAuthorityActions.ReviewAssignmentManage;
+        }
+
+        if (permissionKey.Equals(ProductAuthorityPermissions.CreateEvidenceCandidateDecision, StringComparison.Ordinal))
+        {
+            return ProductAuthorityActions.CandidateDecisionCreate;
+        }
+
+        return ProductAuthorityActions.DecisionApply;
     }
 
     private async Task<int> GetNextLineageVersionAsync(LineageId lineageId, CancellationToken cancellationToken)

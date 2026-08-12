@@ -15,7 +15,15 @@ public sealed class ProductActor : IWorkspaceScoped
 
     public string DisplayName { get; init; } = string.Empty;
 
+    public string ActorType { get; init; } = ProductActorTypes.Human;
+
     public string State { get; set; } = ProductActorStates.Active;
+
+    public long AuthorityVersion { get; set; } = 1;
+
+    public DateTimeOffset AuthorityChangedAt { get; set; }
+
+    public DateTimeOffset? DisabledAt { get; set; }
 
     public string CreatedBy { get; init; } = string.Empty;
 

@@ -297,10 +297,49 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
                     Subject = assignment.Subject,
                     DisplayName = assignment.Subject,
                     State = ProductActorStates.Active,
+                    AuthorityVersion = 1,
+                    AuthorityChangedAt = scenario.Clock.UtcNow,
                     CreatedBy = "authority-test-seeder",
                     CreatedAt = scenario.Clock.UtcNow
                 };
                 dbContext.ProductActors.Add(actor);
+            }
+
+            if (!await dbContext.ProductTenantMemberships.AnyAsync(item =>
+                item.ActorSubject == assignment.Subject
+                && item.State == ProductMembershipStates.Active))
+            {
+                dbContext.ProductTenantMemberships.Add(new ProductTenantMembership
+                {
+                    TenantId = scenario.TenantId,
+                    ActorId = actor.Id,
+                    ActorSubject = assignment.Subject,
+                    State = ProductMembershipStates.Active,
+                    AuthorityVersion = actor.AuthorityVersion,
+                    GrantedBy = "authority-test-seeder",
+                    GrantedAt = scenario.Clock.UtcNow,
+                    IdempotencyKey = $"tenant-authority-{Guid.NewGuid():N}",
+                    RequestHash = Sha256(Encoding.UTF8.GetBytes($"{assignment.Subject}|tenant"))
+                });
+            }
+
+            if (!await dbContext.ProductWorkspaceMemberships.AnyAsync(item =>
+                item.ActorSubject == assignment.Subject
+                && item.State == ProductMembershipStates.Active))
+            {
+                dbContext.ProductWorkspaceMemberships.Add(new ProductWorkspaceMembership
+                {
+                    TenantId = scenario.TenantId,
+                    WorkspaceId = scenario.WorkspaceId,
+                    ActorId = actor.Id,
+                    ActorSubject = assignment.Subject,
+                    State = ProductMembershipStates.Active,
+                    AuthorityVersion = actor.AuthorityVersion,
+                    GrantedBy = "authority-test-seeder",
+                    GrantedAt = scenario.Clock.UtcNow,
+                    IdempotencyKey = $"workspace-authority-{Guid.NewGuid():N}",
+                    RequestHash = Sha256(Encoding.UTF8.GetBytes($"{assignment.Subject}|workspace"))
+                });
             }
 
             var resourceId = assignment.PermissionKey == ProductAuthorityPermissions.ManageEvidenceReviewAssignments
@@ -324,6 +363,7 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
                     ResourceType = ProductAuthorityResourceTypes.EvidenceReview,
                     ResourceId = resourceId,
                     State = ProductPermissionAssignmentStates.Active,
+                    AuthorityVersion = actor.AuthorityVersion,
                     AssignedBy = "authority-test-seeder",
                     AssignedAt = scenario.Clock.UtcNow,
                     EffectiveFrom = scenario.Clock.UtcNow,

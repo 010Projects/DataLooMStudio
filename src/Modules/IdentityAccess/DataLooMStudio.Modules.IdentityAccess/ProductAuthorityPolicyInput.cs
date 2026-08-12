@@ -1,0 +1,25 @@
+namespace DataLooMStudio.Modules.IdentityAccess;
+
+public sealed record ProductAuthorityPolicyInput(
+    string ActorSubject,
+    string ActorType,
+    string PermissionKey,
+    string ResourceType,
+    string ResourceId,
+    string? ProductCapability,
+    string? Action,
+    string? ProductRole,
+    string? Classification,
+    string? LifecycleState,
+    long? CapturedAuthorityVersion,
+    DateTimeOffset? CapturedAt,
+    TimeSpan? MaximumAuthorityAge,
+    bool RequireEntitlement,
+    bool HasEffectiveEntitlement,
+    bool ExternalStrongAuthenticationSatisfied,
+    ProductActor? Actor,
+    ProductTenantMembership? TenantMembership,
+    ProductWorkspaceMembership? WorkspaceMembership,
+    ProductPermissionAssignment? PermissionAssignment,
+    ProductAuthorityElevation? Elevation,
+    DateTimeOffset Now);

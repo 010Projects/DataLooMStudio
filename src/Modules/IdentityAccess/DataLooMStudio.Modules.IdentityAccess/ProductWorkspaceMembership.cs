@@ -3,7 +3,7 @@ using DataLooMStudio.SharedKernel.Identity;
 
 namespace DataLooMStudio.Modules.IdentityAccess;
 
-public sealed class ProductPermissionAssignment : IWorkspaceScoped
+public sealed class ProductWorkspaceMembership : IWorkspaceScoped
 {
     public Guid Id { get; init; } = Guid.NewGuid();
 
@@ -15,27 +15,17 @@ public sealed class ProductPermissionAssignment : IWorkspaceScoped
 
     public string ActorSubject { get; init; } = string.Empty;
 
-    public string PermissionKey { get; init; } = string.Empty;
-
-    public string ResourceType { get; init; } = ProductAuthorityResourceTypes.Any;
-
-    public string ResourceId { get; init; } = ProductAuthorityResourceIds.Any;
-
-    public string State { get; set; } = ProductPermissionAssignmentStates.Active;
+    public string State { get; set; } = ProductMembershipStates.Active;
 
     public long AuthorityVersion { get; set; } = 1;
 
-    public string AssignedBy { get; init; } = string.Empty;
+    public string GrantedBy { get; init; } = string.Empty;
 
-    public DateTimeOffset AssignedAt { get; init; }
-
-    public DateTimeOffset? EffectiveFrom { get; init; }
-
-    public DateTimeOffset? EffectiveTo { get; set; }
-
-    public string? RevokedBy { get; set; }
+    public DateTimeOffset GrantedAt { get; init; }
 
     public DateTimeOffset? RevokedAt { get; set; }
+
+    public string? RevokedBy { get; set; }
 
     public string IdempotencyKey { get; init; } = string.Empty;
 
