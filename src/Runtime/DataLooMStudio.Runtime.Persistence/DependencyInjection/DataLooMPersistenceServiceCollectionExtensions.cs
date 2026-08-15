@@ -33,6 +33,7 @@ public static class DataLooMPersistenceServiceCollectionExtensions
         });
 
         services.TryAddScoped<IOutboxWriter, EfOutboxWriter>();
+        services.TryAddScoped<IProductAuthorityAuditStore, ProductAuthorityAuditStore>();
         services.TryAddScoped<IProductAuthorityService, ProductAuthorityService>();
         services.TryAddScoped<IEvidenceRegistrationService, EvidenceRegistrationService>();
         services.TryAddScoped<IEvidenceContentService, EvidenceContentService>();

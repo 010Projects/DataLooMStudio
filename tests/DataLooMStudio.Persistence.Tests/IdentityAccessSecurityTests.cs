@@ -28,8 +28,9 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
         var result = await service.EvaluatePermissionAsync(
             Request("unknown.actor", ProductAuthorityPermissions.ReadEvidence, "evidence-1"),
             CancellationToken.None);
-        await dbContext.SaveChangesAsync();
-        var audits = await dbContext.AuditEntries
+
+        await using var verificationDbContext = fixture.CreateDbContext(scenario.Accessor);
+        var audits = await verificationDbContext.AuditEntries
             .Where(audit => audit.Action == "ProductAuthority.Denied" && audit.Outcome == "Deny")
             .Select(audit => audit.MetadataJson)
             .ToArrayAsync();
@@ -37,6 +38,52 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
         Assert.False(result.Succeeded);
         Assert.Equal(ProductAuthorityDenyReasonCodes.IdentityInvalid, result.DenialReasonCode);
         Assert.Contains(audits, metadata => metadata.Contains(ProductAuthorityDenyReasonCodes.IdentityInvalid, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Tenant_context_substitution_cannot_use_another_tenants_authority()
+    {
+        var tenantA = await CreateScenarioAsync("tenant-a.actor");
+        await SeedActorAsync(
+            tenantA,
+            "tenant-a.actor",
+            ProductActorTypes.Human,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true,
+            permissionKey: ProductAuthorityPermissions.ReadEvidence);
+        var tenantB = await CreateScenarioAsync("tenant-a.actor");
+
+        var result = await EvaluateAsync(
+            tenantB,
+            Request("tenant-a.actor", ProductAuthorityPermissions.ReadEvidence, "tenant-a-evidence"));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ProductAuthorityDenyReasonCodes.IdentityInvalid, result.DenialReasonCode);
+    }
+
+    [Fact]
+    public async Task Forged_tenant_identifier_does_not_disclose_or_grant_product_authority()
+    {
+        var tenantA = await CreateScenarioAsync("forged-tenant.actor");
+        await SeedActorAsync(
+            tenantA,
+            "forged-tenant.actor",
+            ProductActorTypes.Human,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true,
+            permissionKey: ProductAuthorityPermissions.ReadEvidence);
+        var forgedAccessor = CreateRequestContext(TenantId.New(), tenantA.WorkspaceId, "forged-tenant.actor");
+        await using var dbContext = fixture.CreateDbContext(forgedAccessor);
+        var service = CreateService(dbContext, forgedAccessor, tenantA.Clock);
+
+        var result = await service.EvaluatePermissionAsync(
+            Request("forged-tenant.actor", ProductAuthorityPermissions.ReadEvidence, "tenant-a-evidence"),
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ProductAuthorityDenyReasonCodes.IdentityInvalid, result.DenialReasonCode);
     }
 
     [Fact]
@@ -93,6 +140,58 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
 
         Assert.Equal(ProductAuthorityDenyReasonCodes.TenantAccessDenied, tenantDenied.DenialReasonCode);
         Assert.Equal(ProductAuthorityDenyReasonCodes.WorkspaceAccessDenied, workspaceDenied.DenialReasonCode);
+    }
+
+    [Fact]
+    public async Task Revoked_and_stale_memberships_cannot_exercise_product_authority()
+    {
+        var revokedTenant = await CreateScenarioAsync("revoked-tenant.actor");
+        await SeedActorAsync(
+            revokedTenant,
+            "revoked-tenant.actor",
+            ProductActorTypes.Human,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true,
+            permissionKey: ProductAuthorityPermissions.ReadEvidence,
+            tenantMembershipState: ProductMembershipStates.Revoked);
+        var revokedTenantResult = await EvaluateAsync(
+            revokedTenant,
+            Request("revoked-tenant.actor", ProductAuthorityPermissions.ReadEvidence, "evidence-1"));
+
+        var revokedWorkspace = await CreateScenarioAsync("revoked-workspace.actor");
+        await SeedActorAsync(
+            revokedWorkspace,
+            "revoked-workspace.actor",
+            ProductActorTypes.Human,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true,
+            permissionKey: ProductAuthorityPermissions.ReadEvidence,
+            workspaceMembershipState: ProductMembershipStates.Revoked);
+        var revokedWorkspaceResult = await EvaluateAsync(
+            revokedWorkspace,
+            Request("revoked-workspace.actor", ProductAuthorityPermissions.ReadEvidence, "evidence-1"));
+
+        var staleMembership = await CreateScenarioAsync("stale-membership.actor");
+        await SeedActorAsync(
+            staleMembership,
+            "stale-membership.actor",
+            ProductActorTypes.Human,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true,
+            permissionKey: ProductAuthorityPermissions.ReadEvidence,
+            actorAuthorityVersion: 2,
+            membershipAuthorityVersion: 1,
+            assignmentAuthorityVersion: 2);
+        var staleMembershipResult = await EvaluateAsync(
+            staleMembership,
+            Request("stale-membership.actor", ProductAuthorityPermissions.ReadEvidence, "evidence-1"));
+
+        Assert.Equal(ProductAuthorityDenyReasonCodes.TenantAccessDenied, revokedTenantResult.DenialReasonCode);
+        Assert.Equal(ProductAuthorityDenyReasonCodes.WorkspaceAccessDenied, revokedWorkspaceResult.DenialReasonCode);
+        Assert.Equal(ProductAuthorityDenyReasonCodes.AuthorityStale, staleMembershipResult.DenialReasonCode);
     }
 
     [Theory]
@@ -172,6 +271,7 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
         var revoked = await EvaluateAsync(
             revokedScenario,
             ReviewRequest("revoked.reviewer", ProductAuthorityPermissions.ApplyEvidenceDecision, "review-1"));
+        var revokedAudits = await ReadDeniedAuthorityAuditMetadataAsync(revokedScenario);
 
         var staleScenario = await CreateScenarioAsync("stale.reviewer");
         await SeedActorAsync(
@@ -190,9 +290,57 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
         var stale = await EvaluateAsync(
             staleScenario,
             ReviewRequest("stale.reviewer", ProductAuthorityPermissions.ApplyEvidenceDecision, "review-1"));
+        var staleAudits = await ReadDeniedAuthorityAuditMetadataAsync(staleScenario);
 
         Assert.Equal(ProductAuthorityDenyReasonCodes.PermissionDenied, revoked.DenialReasonCode);
         Assert.Equal(ProductAuthorityDenyReasonCodes.AuthorityStale, stale.DenialReasonCode);
+        Assert.Contains(revokedAudits, metadata => metadata.Contains(ProductAuthorityDenyReasonCodes.PermissionDenied, StringComparison.Ordinal));
+        Assert.Contains(staleAudits, metadata => metadata.Contains(ProductAuthorityDenyReasonCodes.AuthorityStale, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Captured_authority_version_and_age_are_revalidated()
+    {
+        var versionScenario = await CreateScenarioAsync("captured-version.actor");
+        await SeedActorAsync(
+            versionScenario,
+            "captured-version.actor",
+            ProductActorTypes.Human,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true,
+            permissionKey: ProductAuthorityPermissions.ReadEvidence,
+            actorAuthorityVersion: 2,
+            membershipAuthorityVersion: 2,
+            assignmentAuthorityVersion: 2);
+        var versionResult = await EvaluateAsync(
+            versionScenario,
+            Request("captured-version.actor", ProductAuthorityPermissions.ReadEvidence, "evidence-1") with
+            {
+                CapturedAuthorityVersion = 1
+            });
+
+        var ageScenario = await CreateScenarioAsync("captured-age.actor");
+        await SeedActorAsync(
+            ageScenario,
+            "captured-age.actor",
+            ProductActorTypes.Human,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true,
+            permissionKey: ProductAuthorityPermissions.ReadEvidence);
+        var ageResult = await EvaluateAsync(
+            ageScenario,
+            Request("captured-age.actor", ProductAuthorityPermissions.ReadEvidence, "evidence-1") with
+            {
+                CapturedAt = ageScenario.Clock.UtcNow.AddMinutes(-10),
+                MaximumAuthorityAge = TimeSpan.FromMinutes(1)
+            });
+
+        Assert.Equal(ProductAuthorityDenyReasonCodes.AuthorityStale, versionResult.DenialReasonCode);
+        Assert.Equal(ProductAuthorityDenyReasonCodes.AuthorityStale, ageResult.DenialReasonCode);
+        Assert.Contains(await ReadDeniedAuthorityAuditMetadataAsync(versionScenario), metadata => metadata.Contains(ProductAuthorityDenyReasonCodes.AuthorityStale, StringComparison.Ordinal));
+        Assert.Contains(await ReadDeniedAuthorityAuditMetadataAsync(ageScenario), metadata => metadata.Contains(ProductAuthorityDenyReasonCodes.AuthorityStale, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -235,6 +383,95 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
         Assert.Equal(ProductAuthoritySources.SupportElevation, diagnostics.AuthoritySource);
         Assert.False(evidence.Succeeded);
         Assert.Equal(ProductAuthorityDenyReasonCodes.AssignmentRequired, evidence.DenialReasonCode);
+    }
+
+    [Fact]
+    public async Task Expired_and_revoked_elevations_cannot_exercise_product_authority()
+    {
+        var privileged = await CreateScenarioAsync("expired-privileged.actor");
+        await SeedActorAsync(
+            privileged,
+            "expired-privileged.actor",
+            ProductActorTypes.Human,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true);
+        await SeedElevationAsync(
+            privileged,
+            "expired-privileged.actor",
+            ProductAuthorityElevationTypes.PrivilegedAccess,
+            ProductAuthorityPermissions.ManageProductPermissionAssignments,
+            ProductAuthorityResourceTypes.Any,
+            ProductAuthorityResourceIds.Any,
+            expiresAt: privileged.Clock.UtcNow.AddMinutes(-1));
+        var expiredPrivileged = await EvaluateAsync(
+            privileged,
+            new ProductAuthorityEvaluationRequest(
+                "expired-privileged.actor",
+                ProductAuthorityPermissions.ManageProductPermissionAssignments,
+                ProductAuthorityResourceTypes.Any,
+                ProductAuthorityResourceIds.Any,
+                ProductActorTypes.Human,
+                ProductAuthorityCapabilities.EvidenceReviewDecision,
+                ProductAuthorityActions.ReviewAssignmentManage));
+
+        var support = await CreateScenarioAsync("expired-support.actor");
+        await SeedActorAsync(
+            support,
+            "expired-support.actor",
+            ProductActorTypes.Support,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true);
+        await SeedElevationAsync(
+            support,
+            "expired-support.actor",
+            ProductAuthorityElevationTypes.Support,
+            ProductAuthorityPermissions.ReadSupportDiagnostics,
+            ProductAuthorityResourceTypes.SupportDiagnostics,
+            ProductAuthorityResourceIds.Any,
+            expiresAt: support.Clock.UtcNow.AddMinutes(-1));
+        var expiredSupport = await EvaluateAsync(
+            support,
+            new ProductAuthorityEvaluationRequest(
+                "expired-support.actor",
+                ProductAuthorityPermissions.ReadSupportDiagnostics,
+                ProductAuthorityResourceTypes.SupportDiagnostics,
+                ProductAuthorityResourceIds.Any,
+                ProductActorTypes.Support,
+                ProductAuthorityCapabilities.SupportDiagnostics,
+                ProductAuthorityActions.SupportDiagnosticsRead));
+
+        var revoked = await CreateScenarioAsync("revoked-elevation.actor");
+        await SeedActorAsync(
+            revoked,
+            "revoked-elevation.actor",
+            ProductActorTypes.Support,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true);
+        await SeedElevationAsync(
+            revoked,
+            "revoked-elevation.actor",
+            ProductAuthorityElevationTypes.Support,
+            ProductAuthorityPermissions.ReadSupportDiagnostics,
+            ProductAuthorityResourceTypes.SupportDiagnostics,
+            ProductAuthorityResourceIds.Any,
+            elevationState: ProductAuthorityElevationStates.Revoked);
+        var revokedElevation = await EvaluateAsync(
+            revoked,
+            new ProductAuthorityEvaluationRequest(
+                "revoked-elevation.actor",
+                ProductAuthorityPermissions.ReadSupportDiagnostics,
+                ProductAuthorityResourceTypes.SupportDiagnostics,
+                ProductAuthorityResourceIds.Any,
+                ProductActorTypes.Support,
+                ProductAuthorityCapabilities.SupportDiagnostics,
+                ProductAuthorityActions.SupportDiagnosticsRead));
+
+        Assert.Equal(ProductAuthorityDenyReasonCodes.PermissionDenied, expiredPrivileged.DenialReasonCode);
+        Assert.Equal(ProductAuthorityDenyReasonCodes.PermissionDenied, expiredSupport.DenialReasonCode);
+        Assert.Equal(ProductAuthorityDenyReasonCodes.PermissionDenied, revokedElevation.DenialReasonCode);
     }
 
     [Fact]
@@ -361,7 +598,8 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
             new ProductSeparationOfDutyRequest("decision.actor", "review.requester", "Evidence review requester cannot apply final decision"),
             CancellationToken.None);
         await dbContext.SaveChangesAsync();
-        var audits = await dbContext.AuditEntries
+        await using var verificationDbContext = fixture.CreateDbContext(scenario.Accessor);
+        var audits = await verificationDbContext.AuditEntries
             .Where(audit => audit.Action == "ProductAuthority.SeparationOfDutiesDenied")
             .Select(audit => audit.MetadataJson)
             .ToArrayAsync();
@@ -438,7 +676,9 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
         string assignmentState = ProductPermissionAssignmentStates.Active,
         long actorAuthorityVersion = 1,
         long? membershipAuthorityVersion = null,
-        long? assignmentAuthorityVersion = null)
+        long? assignmentAuthorityVersion = null,
+        string tenantMembershipState = ProductMembershipStates.Active,
+        string workspaceMembershipState = ProductMembershipStates.Active)
     {
         await using var dbContext = fixture.CreateDbContext(scenario.Accessor);
         var actor = new ProductActor
@@ -464,10 +704,16 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
                 TenantId = scenario.TenantId,
                 ActorId = actor.Id,
                 ActorSubject = subject,
-                State = ProductMembershipStates.Active,
+                State = tenantMembershipState,
                 AuthorityVersion = membershipAuthorityVersion ?? actor.AuthorityVersion,
                 GrantedBy = "identity-security-test",
                 GrantedAt = scenario.Clock.UtcNow,
+                RevokedAt = tenantMembershipState.Equals(ProductMembershipStates.Revoked, StringComparison.Ordinal)
+                    ? scenario.Clock.UtcNow
+                    : null,
+                RevokedBy = tenantMembershipState.Equals(ProductMembershipStates.Revoked, StringComparison.Ordinal)
+                    ? "identity-security-test"
+                    : null,
                 IdempotencyKey = $"tenant-membership-{Guid.NewGuid():N}",
                 RequestHash = Sha256(Encoding.UTF8.GetBytes($"{subject}|tenant"))
             });
@@ -481,10 +727,16 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
                 WorkspaceId = scenario.WorkspaceId,
                 ActorId = actor.Id,
                 ActorSubject = subject,
-                State = ProductMembershipStates.Active,
+                State = workspaceMembershipState,
                 AuthorityVersion = membershipAuthorityVersion ?? actor.AuthorityVersion,
                 GrantedBy = "identity-security-test",
                 GrantedAt = scenario.Clock.UtcNow,
+                RevokedAt = workspaceMembershipState.Equals(ProductMembershipStates.Revoked, StringComparison.Ordinal)
+                    ? scenario.Clock.UtcNow
+                    : null,
+                RevokedBy = workspaceMembershipState.Equals(ProductMembershipStates.Revoked, StringComparison.Ordinal)
+                    ? "identity-security-test"
+                    : null,
                 IdempotencyKey = $"workspace-membership-{Guid.NewGuid():N}",
                 RequestHash = Sha256(Encoding.UTF8.GetBytes($"{subject}|workspace"))
             });
@@ -556,7 +808,9 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
         string permissionKey,
         string resourceType,
         string resourceId,
-        bool requiresStrongAuthentication = false)
+        bool requiresStrongAuthentication = false,
+        string elevationState = ProductAuthorityElevationStates.Active,
+        DateTimeOffset? expiresAt = null)
     {
         await using var dbContext = fixture.CreateDbContext(scenario.Accessor);
         var actor = await dbContext.ProductActors.SingleAsync(item => item.Subject == subject);
@@ -572,14 +826,22 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
             ResourceType = resourceType,
             ResourceId = resourceId,
             Reason = "Security control test elevation.",
-            State = ProductAuthorityElevationStates.Active,
+            State = elevationState,
             AuthorityVersion = actor.AuthorityVersion,
             RequestedBy = "identity-security-test",
             RequestedAt = scenario.Clock.UtcNow.AddMinutes(-5),
             ApprovedBy = "security-approver",
             ApprovedAt = scenario.Clock.UtcNow.AddMinutes(-4),
-            EffectiveFrom = scenario.Clock.UtcNow.AddMinutes(-3),
-            ExpiresAt = scenario.Clock.UtcNow.AddMinutes(30),
+            EffectiveFrom = (expiresAt ?? scenario.Clock.UtcNow.AddMinutes(30)) <= scenario.Clock.UtcNow
+                ? scenario.Clock.UtcNow.AddMinutes(-30)
+                : scenario.Clock.UtcNow.AddMinutes(-3),
+            ExpiresAt = expiresAt ?? scenario.Clock.UtcNow.AddMinutes(30),
+            RevokedAt = elevationState.Equals(ProductAuthorityElevationStates.Revoked, StringComparison.Ordinal)
+                ? scenario.Clock.UtcNow
+                : null,
+            RevokedBy = elevationState.Equals(ProductAuthorityElevationStates.Revoked, StringComparison.Ordinal)
+                ? "identity-security-test"
+                : null,
             RequiresExternalStrongAuthentication = requiresStrongAuthentication,
             CorrelationId = scenario.Accessor.Current!.CorrelationId
         });
@@ -610,6 +872,15 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
         var result = await service.EvaluatePermissionAsync(request, CancellationToken.None);
         await dbContext.SaveChangesAsync();
         return result;
+    }
+
+    private async Task<string[]> ReadDeniedAuthorityAuditMetadataAsync(SecurityScenario scenario)
+    {
+        await using var dbContext = fixture.CreateDbContext(scenario.Accessor);
+        return await dbContext.AuditEntries
+            .Where(audit => audit.Action == "ProductAuthority.Denied" && audit.Outcome == "Deny")
+            .Select(audit => audit.MetadataJson)
+            .ToArrayAsync();
     }
 
     private static ProductAuthorityEvaluationRequest Request(
@@ -657,12 +928,16 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
             ExternalStrongAuthenticationSatisfied: strongAuthentication);
     }
 
-    private static ProductAuthorityService CreateService(
+    private ProductAuthorityService CreateService(
         DataLooMDbContext dbContext,
         IRequestContextAccessor accessor,
         IClock clock)
     {
-        return new ProductAuthorityService(dbContext, accessor, clock);
+        return new ProductAuthorityService(
+            dbContext,
+            accessor,
+            clock,
+            new ProductAuthorityAuditStore(fixture.CreateDbContextOptions()));
     }
 
     private static RequestContextAccessor CreateRequestContext(

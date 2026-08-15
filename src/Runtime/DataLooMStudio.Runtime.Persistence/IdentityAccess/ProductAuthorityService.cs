@@ -1,6 +1,5 @@
 using System.Text.Json;
 
-using DataLooMStudio.Modules.Audit;
 using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.SharedKernel.Abstractions;
 using DataLooMStudio.SharedKernel.RequestContext;
@@ -12,7 +11,8 @@ namespace DataLooMStudio.Runtime.Persistence.IdentityAccess;
 public sealed class ProductAuthorityService(
     DataLooMDbContext dbContext,
     IRequestContextAccessor requestContextAccessor,
-    IClock clock) : IProductAuthorityService
+    IClock clock,
+    IProductAuthorityAuditStore auditStore) : IProductAuthorityService
 {
     public async Task<ProductAuthorityEvaluationResult> EvaluatePermissionAsync(
         ProductAuthorityEvaluationRequest request,
@@ -47,7 +47,15 @@ public sealed class ProductAuthorityService(
                 ProductAuthorityPolicyVersions.PolicyIdentifier,
                 ProductAuthorityPolicyVersions.PolicyVersion,
                 now);
-            RecordAuthorityEvaluation(request, mismatchResult, context, actorSubject, resourceType, resourceId, request.ProductCapability ?? permissionKey);
+            await RecordAuthorityEvaluationAsync(
+                request,
+                mismatchResult,
+                context,
+                actorSubject,
+                resourceType,
+                resourceId,
+                request.ProductCapability ?? permissionKey,
+                cancellationToken);
             return mismatchResult;
         }
 
@@ -124,11 +132,19 @@ public sealed class ProductAuthorityService(
             now));
 
         var result = FromDecision(decision, now);
-        RecordAuthorityEvaluation(request, result, context, actorSubject, resourceType, resourceId, capabilityKey);
+        await RecordAuthorityEvaluationAsync(
+            request,
+            result,
+            context,
+            actorSubject,
+            resourceType,
+            resourceId,
+            capabilityKey,
+            cancellationToken);
         return result;
     }
 
-    public Task<ProductAuthorityEvaluationResult> EvaluateSeparationOfDutyAsync(
+    public async Task<ProductAuthorityEvaluationResult> EvaluateSeparationOfDutyAsync(
         ProductSeparationOfDutyRequest request,
         CancellationToken cancellationToken)
     {
@@ -139,8 +155,8 @@ public sealed class ProductAuthorityService(
             request.DutyConflict.Trim());
 
         var result = FromDecision(decision, now);
-        RecordSeparationOfDutyEvaluation(request, result, now);
-        return Task.FromResult(result);
+        await RecordSeparationOfDutyEvaluationAsync(request, result, now, cancellationToken);
+        return result;
     }
 
     private static ProductAuthorityEvaluationResult FromDecision(
@@ -164,28 +180,28 @@ public sealed class ProductAuthorityService(
                 evaluatedAt);
     }
 
-    private void RecordAuthorityEvaluation(
+    private async Task RecordAuthorityEvaluationAsync(
         ProductAuthorityEvaluationRequest request,
         ProductAuthorityEvaluationResult result,
         RequestContext context,
         string actorSubject,
         string resourceType,
         string resourceId,
-        string capabilityKey)
+        string capabilityKey,
+        CancellationToken cancellationToken)
     {
-        dbContext.AuditEntries.Add(new AuditEntry
-        {
-            TenantId = context.TenantId,
-            WorkspaceId = context.WorkspaceId,
-            ActorSubject = actorSubject,
-            AuthorityContext = "IdentityAccess.ProductAuthority",
-            Action = result.Succeeded ? "ProductAuthority.Evaluated" : "ProductAuthority.Denied",
-            TargetType = resourceType,
-            TargetId = resourceId,
-            CorrelationId = request.CorrelationId ?? context.CorrelationId,
-            CausationId = request.CausationId ?? "ProductAuthority.Evaluate",
-            Outcome = result.Succeeded ? "Permit" : "Deny",
-            MetadataJson = JsonSerializer.Serialize(new
+        var auditRecord = new ProductAuthorityAuditRecord(
+            context.TenantId,
+            context.WorkspaceId,
+            actorSubject,
+            "IdentityAccess.ProductAuthority",
+            result.Succeeded ? "ProductAuthority.Evaluated" : "ProductAuthority.Denied",
+            resourceType,
+            resourceId,
+            request.CorrelationId ?? context.CorrelationId,
+            request.CausationId ?? "ProductAuthority.Evaluate",
+            result.Succeeded ? "Permit" : "Deny",
+            JsonSerializer.Serialize(new
             {
                 request.ActorType,
                 Permission = request.PermissionKey,
@@ -199,14 +215,16 @@ public sealed class ProductAuthorityService(
                 result.PolicyVersion,
                 result.DenialReasonCode
             }),
-            OccurredAt = result.EvaluatedAt
-        });
+            result.EvaluatedAt);
+
+        await RecordAuditAsync(auditRecord, result.Succeeded, cancellationToken);
     }
 
-    private void RecordSeparationOfDutyEvaluation(
+    private async Task RecordSeparationOfDutyEvaluationAsync(
         ProductSeparationOfDutyRequest request,
         ProductAuthorityEvaluationResult result,
-        DateTimeOffset evaluatedAt)
+        DateTimeOffset evaluatedAt,
+        CancellationToken cancellationToken)
     {
         var context = requestContextAccessor.Current;
         if (context is null)
@@ -214,21 +232,20 @@ public sealed class ProductAuthorityService(
             return;
         }
 
-        dbContext.AuditEntries.Add(new AuditEntry
-        {
-            TenantId = context.TenantId,
-            WorkspaceId = context.WorkspaceId,
-            ActorSubject = request.ActorSubject,
-            AuthorityContext = "IdentityAccess.ProductAuthority",
-            Action = result.Succeeded
+        var auditRecord = new ProductAuthorityAuditRecord(
+            context.TenantId,
+            context.WorkspaceId,
+            request.ActorSubject,
+            "IdentityAccess.ProductAuthority",
+            result.Succeeded
                 ? "ProductAuthority.SeparationOfDutiesEvaluated"
                 : "ProductAuthority.SeparationOfDutiesDenied",
-            TargetType = "ProductAuthority",
-            TargetId = request.DutyConflict,
-            CorrelationId = context.CorrelationId,
-            CausationId = "ProductAuthority.SeparationOfDuty",
-            Outcome = result.Succeeded ? "Permit" : "Deny",
-            MetadataJson = JsonSerializer.Serialize(new
+            "ProductAuthority",
+            request.DutyConflict,
+            context.CorrelationId,
+            "ProductAuthority.SeparationOfDuty",
+            result.Succeeded ? "Permit" : "Deny",
+            JsonSerializer.Serialize(new
             {
                 ConflictingActorSubject = request.ConflictingActorSubject,
                 request.DutyConflict,
@@ -236,7 +253,22 @@ public sealed class ProductAuthorityService(
                 result.PolicyVersion,
                 result.DenialReasonCode
             }),
-            OccurredAt = evaluatedAt
-        });
+            evaluatedAt);
+
+        await RecordAuditAsync(auditRecord, result.Succeeded, cancellationToken);
+    }
+
+    private async Task RecordAuditAsync(
+        ProductAuthorityAuditRecord auditRecord,
+        bool succeeded,
+        CancellationToken cancellationToken)
+    {
+        if (succeeded)
+        {
+            auditStore.AddTransactionalAudit(dbContext, auditRecord);
+            return;
+        }
+
+        await auditStore.PersistDurableDenialAsync(auditRecord, cancellationToken);
     }
 }
