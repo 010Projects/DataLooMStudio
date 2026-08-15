@@ -38,7 +38,7 @@ public sealed class EvidenceRecord : IWorkspaceScoped
 
     public bool IsImmutable { get; init; } = true;
 
-    public bool IsUnderLegalHold { get; init; }
+    public bool IsUnderLegalHold { get; set; }
 
     public string RetentionPolicyKey { get; init; } = string.Empty;
 

@@ -3,6 +3,7 @@ using DataLooMStudio.Infrastructure.Outbox;
 using DataLooMStudio.Runtime.Persistence.Evidence;
 using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.Runtime.Persistence.Outbox;
+using DataLooMStudio.Runtime.Persistence.Retention;
 using DataLooMStudio.Runtime.Persistence.Security;
 
 using Microsoft.EntityFrameworkCore;
@@ -38,9 +39,11 @@ public static class DataLooMPersistenceServiceCollectionExtensions
         services.TryAddScoped<IEvidenceRegistrationService, EvidenceRegistrationService>();
         services.TryAddScoped<IEvidenceContentService, EvidenceContentService>();
         services.TryAddScoped<IEvidenceReviewDecisionService, EvidenceReviewDecisionService>();
+        services.TryAddScoped<IRetentionGovernanceService, RetentionGovernanceService>();
         services.TryAddScoped<EvidenceRegistrationService>();
         services.TryAddScoped<EvidenceContentService>();
         services.TryAddScoped<EvidenceReviewDecisionService>();
+        services.TryAddScoped<RetentionGovernanceService>();
         services.TryAddScoped<PostgresRlsSessionContext>();
 
         return services;

@@ -195,19 +195,24 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
     }
 
     [Theory]
-    [InlineData("platform.admin", "PlatformAdmin")]
-    [InlineData("commercial.admin", "CommercialAdmin")]
-    [InlineData("billing.admin", "BillingAdmin")]
-    [InlineData("support.operator", "SupportOperator")]
-    public async Task Product_role_labels_do_not_grant_evidence_authority_without_explicit_permission(
+    [InlineData("tenant.owner", ProductAuthorityRoleNames.TenantOwner, ProductActorTypes.Human)]
+    [InlineData("workspace.owner", ProductAuthorityRoleNames.WorkspaceOwner, ProductActorTypes.Human)]
+    [InlineData("commercial.admin", ProductAuthorityRoleNames.CommercialAdministrator, ProductActorTypes.Human)]
+    [InlineData("billing.admin", ProductAuthorityRoleNames.BillingAdministrator, ProductActorTypes.Human)]
+    [InlineData("support.operator", ProductAuthorityRoleNames.SupportOperator, ProductActorTypes.Support)]
+    [InlineData("security.operator", ProductAuthorityRoleNames.SecurityOperator, ProductActorTypes.Human)]
+    [InlineData("repository.admin", ProductAuthorityRoleNames.RepositoryAdministrator, ProductActorTypes.Human)]
+    [InlineData("platform.admin", ProductAuthorityRoleNames.PlatformAdministrator, ProductActorTypes.Human)]
+    public async Task Canonical_role_labels_do_not_grant_evidence_authority_without_explicit_permission(
         string actorSubject,
-        string role)
+        string role,
+        string actorType)
     {
         var scenario = await CreateScenarioAsync(actorSubject);
         await SeedActorAsync(
             scenario,
             actorSubject,
-            actorSubject.StartsWith("support.", StringComparison.Ordinal) ? ProductActorTypes.Support : ProductActorTypes.Human,
+            actorType,
             ProductActorStates.Active,
             seedTenantMembership: true,
             seedWorkspaceMembership: true);
@@ -216,12 +221,71 @@ public sealed class IdentityAccessSecurityTests(PostgresFixture fixture) : IClas
             scenario,
             Request(actorSubject, ProductAuthorityPermissions.ReadEvidence, "evidence-1") with
             {
-                ActorType = actorSubject.StartsWith("support.", StringComparison.Ordinal) ? ProductActorTypes.Support : ProductActorTypes.Human,
+                ActorType = actorType,
                 ProductRole = role
             });
 
         Assert.False(result.Succeeded);
         Assert.Equal(ProductAuthorityDenyReasonCodes.AssignmentRequired, result.DenialReasonCode);
+    }
+
+    [Theory]
+    [InlineData("tenant-owner-review", ProductAuthorityRoleNames.TenantOwner, ProductActorTypes.Human)]
+    [InlineData("workspace-owner-review", ProductAuthorityRoleNames.WorkspaceOwner, ProductActorTypes.Human)]
+    [InlineData("commercial-admin-review", ProductAuthorityRoleNames.CommercialAdministrator, ProductActorTypes.Human)]
+    [InlineData("billing-admin-review", ProductAuthorityRoleNames.BillingAdministrator, ProductActorTypes.Human)]
+    [InlineData("support-operator-review", ProductAuthorityRoleNames.SupportOperator, ProductActorTypes.Support)]
+    [InlineData("security-operator-review", ProductAuthorityRoleNames.SecurityOperator, ProductActorTypes.Human)]
+    [InlineData("repository-admin-review", ProductAuthorityRoleNames.RepositoryAdministrator, ProductActorTypes.Human)]
+    [InlineData("platform-admin-review", ProductAuthorityRoleNames.PlatformAdministrator, ProductActorTypes.Human)]
+    public async Task Canonical_owner_admin_and_technical_roles_do_not_grant_review_or_decision_authority(
+        string actorSubject,
+        string role,
+        string actorType)
+    {
+        var scenario = await CreateScenarioAsync(actorSubject);
+        await SeedActorAsync(
+            scenario,
+            actorSubject,
+            actorType,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true);
+
+        var result = await EvaluateAsync(
+            scenario,
+            ReviewRequest(actorSubject, ProductAuthorityPermissions.ApplyEvidenceDecision, "review-1") with
+            {
+                ActorType = actorType,
+                ProductRole = role
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ProductAuthorityDenyReasonCodes.AssignmentRequired, result.DenialReasonCode);
+    }
+
+    [Fact]
+    public async Task Legacy_local_role_labels_are_not_canonical_product_authority_metadata()
+    {
+        var scenario = await CreateScenarioAsync("legacy-role.actor");
+        await SeedActorAsync(
+            scenario,
+            "legacy-role.actor",
+            ProductActorTypes.Human,
+            ProductActorStates.Active,
+            seedTenantMembership: true,
+            seedWorkspaceMembership: true,
+            permissionKey: ProductAuthorityPermissions.ReadEvidence);
+
+        var result = await EvaluateAsync(
+            scenario,
+            Request("legacy-role.actor", ProductAuthorityPermissions.ReadEvidence, "evidence-1") with
+            {
+                ProductRole = "EvidenceReviewer"
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(ProductAuthorityDenyReasonCodes.PermissionDenied, result.DenialReasonCode);
     }
 
     [Fact]

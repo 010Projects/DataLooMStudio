@@ -69,6 +69,7 @@ app.UseAuthorization();
 
 app.MapFoundationEndpoints();
 app.MapEvidenceEndpoints();
+app.MapRetentionEndpoints();
 app.MapHealthChecks("/readyz");
 
 app.Run();
