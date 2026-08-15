@@ -56,4 +56,18 @@ public static class ProductAuthorityPermissions
         return permissionKey.Equals(CreateEvidenceCandidateDecision, StringComparison.Ordinal)
             || permissionKey.Equals(ApplyEvidenceDecision, StringComparison.Ordinal);
     }
+
+    public static bool IsEvidenceContentPermission(string permissionKey)
+    {
+        return permissionKey.Equals(RegisterEvidence, StringComparison.Ordinal)
+            || permissionKey.Equals(ReadEvidence, StringComparison.Ordinal)
+            || permissionKey.Equals(ReadRestrictedEvidence, StringComparison.Ordinal);
+    }
+
+    public static bool IsEvidenceReviewOrDecisionPermission(string permissionKey)
+    {
+        return permissionKey.Equals(ManageEvidenceReviewAssignments, StringComparison.Ordinal)
+            || permissionKey.Equals(CreateEvidenceCandidateDecision, StringComparison.Ordinal)
+            || permissionKey.Equals(ApplyEvidenceDecision, StringComparison.Ordinal);
+    }
 }

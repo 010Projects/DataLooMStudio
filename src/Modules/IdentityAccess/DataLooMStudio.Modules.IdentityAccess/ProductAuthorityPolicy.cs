@@ -19,6 +19,14 @@ public static class ProductAuthorityPolicy
                 "Permission key is not part of the canonical Product authority catalog.");
         }
 
+        if (!string.IsNullOrWhiteSpace(input.ProductRole)
+            && !ProductAuthorityRoleTaxonomy.IsSupportedRole(input.ProductRole))
+        {
+            return ProductAuthorityPolicyDecision.Denied(
+                ProductAuthorityDenyReasonCodes.PermissionDenied,
+                "Product role is not part of the canonical Product authority taxonomy.");
+        }
+
         if (input.Actor is null)
         {
             return ProductAuthorityPolicyDecision.Denied(

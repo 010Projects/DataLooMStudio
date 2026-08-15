@@ -425,6 +425,110 @@ public sealed class FoundationArchitectureTests
     }
 
     [Fact]
+    public void Product_authority_taxonomy_must_match_canonical_product_decision()
+    {
+        var decisionRecord = Path.Combine(
+            RepositoryRoot,
+            "governance",
+            "product-authority",
+            "DLS-PROD-AUTH-001.md");
+        var expectedRoles = new[]
+        {
+            ProductAuthorityRoleNames.TenantOwner,
+            ProductAuthorityRoleNames.WorkspaceOwner,
+            ProductAuthorityRoleNames.EvidenceContributor,
+            ProductAuthorityRoleNames.EvidenceReader,
+            ProductAuthorityRoleNames.Reviewer,
+            ProductAuthorityRoleNames.DecisionApprover,
+            ProductAuthorityRoleNames.GovernanceAdministrator,
+            ProductAuthorityRoleNames.RetentionAdministrator,
+            ProductAuthorityRoleNames.LegalHoldAdministrator,
+            ProductAuthorityRoleNames.CommercialAdministrator,
+            ProductAuthorityRoleNames.BillingAdministrator,
+            ProductAuthorityRoleNames.SupportOperator,
+            ProductAuthorityRoleNames.SecurityOperator,
+            ProductAuthorityRoleNames.RepositoryAdministrator,
+            ProductAuthorityRoleNames.PlatformAdministrator,
+            ProductAuthorityRoleNames.Auditor
+        };
+        var actualRoles = ProductAuthorityRoleTaxonomy.Roles.Select(role => role.RoleName).ToArray();
+        var decisionSource = File.ReadAllText(decisionRecord);
+
+        Assert.Equal("DLS-PROD-AUTH-001", ProductAuthorityRoleTaxonomy.DecisionId);
+        Assert.Equal(expectedRoles, actualRoles);
+        Assert.Equal(expectedRoles.Length, actualRoles.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(ProductAuthorityRoleTaxonomy.Roles.SelectMany(role => role.PermissionBundle), permission =>
+            Assert.True(ProductAuthorityPermissions.IsSupported(permission), permission));
+        Assert.All(expectedRoles, role => Assert.Contains(role, decisionSource, StringComparison.Ordinal));
+        Assert.Contains("permissions remain the stable runtime authority contract", decisionSource, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Product_authority_role_classes_must_not_imply_content_review_or_decision_authority()
+    {
+        var rolesWithoutImplicitContentOrApproval = new[]
+        {
+            ProductAuthorityRoleNames.TenantOwner,
+            ProductAuthorityRoleNames.WorkspaceOwner,
+            ProductAuthorityRoleNames.CommercialAdministrator,
+            ProductAuthorityRoleNames.BillingAdministrator,
+            ProductAuthorityRoleNames.SupportOperator,
+            ProductAuthorityRoleNames.SecurityOperator,
+            ProductAuthorityRoleNames.RepositoryAdministrator,
+            ProductAuthorityRoleNames.PlatformAdministrator
+        };
+        var productBusinessRoles = ProductAuthorityRoleTaxonomy.Roles
+            .Where(role => role.RoleClass.Equals(ProductAuthorityRoleClasses.ProductBusinessRole, StringComparison.Ordinal))
+            .Select(role => role.RoleName)
+            .ToArray();
+        var privilegedTechnicalOrOperational = ProductAuthorityRoleTaxonomy.Roles
+            .Where(role => role.IsPrivilegedTechnicalOrOperational)
+            .Select(role => role.RoleName)
+            .ToArray();
+
+        Assert.Contains(ProductAuthorityRoleNames.Reviewer, productBusinessRoles);
+        Assert.Contains(ProductAuthorityRoleNames.DecisionApprover, productBusinessRoles);
+        Assert.Contains(ProductAuthorityRoleNames.SupportOperator, privilegedTechnicalOrOperational);
+        Assert.Contains(ProductAuthorityRoleNames.SecurityOperator, privilegedTechnicalOrOperational);
+        Assert.Contains(ProductAuthorityRoleNames.RepositoryAdministrator, privilegedTechnicalOrOperational);
+        Assert.Contains(ProductAuthorityRoleNames.PlatformAdministrator, privilegedTechnicalOrOperational);
+
+        foreach (var roleName in rolesWithoutImplicitContentOrApproval)
+        {
+            var role = ProductAuthorityRoleTaxonomy.FindRole(roleName)
+                ?? throw new InvalidOperationException(roleName);
+
+            Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsEvidenceContentPermission);
+            Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsEvidenceReviewOrDecisionPermission);
+        }
+    }
+
+    [Fact]
+    public void Product_role_taxonomy_must_not_be_reintroduced_inside_evidence_or_api_boundaries()
+    {
+        var evidenceSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Modules", "Evidence")).Select(File.ReadAllText));
+        var apiSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Api")).Select(File.ReadAllText));
+        var policySource = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Modules",
+            "IdentityAccess",
+            "DataLooMStudio.Modules.IdentityAccess",
+            "ProductAuthorityPolicy.cs"));
+
+        Assert.DoesNotContain("ProductAuthorityRoleTaxonomy", evidenceSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductAuthorityRoleNames", evidenceSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductAuthorityRoleTaxonomy", apiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductAuthorityRoleNames", apiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("PermissionBundle", policySource, StringComparison.Ordinal);
+        Assert.DoesNotContain("FindRole", policySource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Evidence_review_runtime_must_delegate_authority_to_module_policies_and_product_authority()
     {
         var reviewService = Path.Combine(

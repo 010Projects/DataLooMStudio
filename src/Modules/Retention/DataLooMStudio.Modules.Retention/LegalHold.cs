@@ -20,5 +20,13 @@ public sealed class LegalHold : IWorkspaceScoped
 
     public DateTimeOffset PlacedAt { get; init; }
 
-    public DateTimeOffset? ReleasedAt { get; init; }
+    public DateTimeOffset? ReleasedAt { get; set; }
+
+    public string? ReleasedBy { get; set; }
+
+    public string IdempotencyKey { get; init; } = string.Empty;
+
+    public string RequestHash { get; init; } = string.Empty;
+
+    public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
 }

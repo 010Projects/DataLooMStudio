@@ -12,6 +12,10 @@ public static class ProductAuthorityActions
 
     public const string DecisionApply = "EvidenceReview.Decision.Apply";
 
+    public const string RetentionPolicyManage = "Governance.Retention.Manage";
+
+    public const string LegalHoldManage = "Governance.LegalHold.Manage";
+
     public const string SupportDiagnosticsRead = "Support.Diagnostics.Read";
 
     public const string WorkloadProcess = "Workload.Process";

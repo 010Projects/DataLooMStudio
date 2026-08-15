@@ -6,6 +6,7 @@
 - Source: Architecture Office conformance handback for the Evidence Review/Decision slice.
 - Status: active with conditions.
 - Applies to: Evidence Review/Decision and the IdentityAccess/Product Authority integration increment.
+- Canonical Product role taxonomy decision: `DLS-PROD-AUTH-001`, registered under `governance/product-authority/DLS-PROD-AUTH-001.md`.
 - Missing authoritative source bodies: `DLS-INC-002-EVID-001` and `DLS-INC-002-PROD-DEC-001`.
 
 Engineering must not reconstruct or infer the missing source bodies. Any Product-wide authority, role taxonomy, lifecycle vocabulary, retention values, Restricted Pilot scope, Production Evidence, AI execution, or Production Authority decision remains outside Engineering authority until the authoritative sources are recovered and approved.
@@ -22,7 +23,7 @@ Evidence-local `EvidenceReviewer` and `EvidenceApprover` names were provisional 
 
 ### ARCH-ERD-003
 
-This is the material condition before further role-dependent capability expands. Product-wide role taxonomy, actor mapping, permission assignment authority, separation-of-duty policy, Entra/External ID claims, commercial entitlement mapping, support/admin permissions, and Product decision authority must be supplied by Product, Architecture, and Security authority before expanding beyond the bounded Evidence review/decision use case.
+This remains the material condition for role-dependent capability expansion. The Product-wide role taxonomy is now confirmed by `DLS-PROD-AUTH-001`; actor mapping, permission assignment authority, separation-of-duty policy, Entra/External ID claims, commercial entitlement mapping, support/admin permissions, and Product decision authority must continue to use the canonical IdentityAccess/Product Authority boundary before expanding beyond bounded executable slices.
 
 ### ARCH-ERD-004
 

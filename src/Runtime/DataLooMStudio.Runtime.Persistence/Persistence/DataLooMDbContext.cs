@@ -449,16 +449,26 @@ public sealed class DataLooMDbContext(
         retentionPolicy.HasKey(policy => policy.Id);
         retentionPolicy.Property(policy => policy.PolicyKey).HasMaxLength(128).IsRequired();
         retentionPolicy.Property(policy => policy.Description).HasMaxLength(512);
+        retentionPolicy.Property(policy => policy.CreatedBy).HasMaxLength(256).IsRequired();
+        retentionPolicy.Property(policy => policy.IdempotencyKey).HasMaxLength(128).IsRequired();
+        retentionPolicy.Property(policy => policy.RequestHash).HasMaxLength(64).IsRequired();
+        retentionPolicy.Property(policy => policy.ConcurrencyToken).IsConcurrencyToken();
         ConfigureWorkspaceScope(retentionPolicy);
         retentionPolicy.HasIndex(policy => new { policy.TenantId, policy.WorkspaceId, policy.PolicyKey }).IsUnique();
+        retentionPolicy.HasIndex(policy => new { policy.TenantId, policy.WorkspaceId, policy.IdempotencyKey }).IsUnique();
 
         legalHold.ToTable("legal_holds", "retention");
         legalHold.HasKey(hold => hold.Id);
         legalHold.Property(hold => hold.EvidenceId).HasConversion(EvidenceIdConverter).ValueGeneratedNever();
         legalHold.Property(hold => hold.Reason).HasMaxLength(512).IsRequired();
         legalHold.Property(hold => hold.PlacedBy).HasMaxLength(256).IsRequired();
+        legalHold.Property(hold => hold.ReleasedBy).HasMaxLength(256);
+        legalHold.Property(hold => hold.IdempotencyKey).HasMaxLength(128).IsRequired();
+        legalHold.Property(hold => hold.RequestHash).HasMaxLength(64).IsRequired();
+        legalHold.Property(hold => hold.ConcurrencyToken).IsConcurrencyToken();
         ConfigureWorkspaceScope(legalHold);
         legalHold.HasIndex(hold => new { hold.TenantId, hold.WorkspaceId, hold.EvidenceId, hold.ReleasedAt });
+        legalHold.HasIndex(hold => new { hold.TenantId, hold.WorkspaceId, hold.IdempotencyKey }).IsUnique();
     }
 
     private void ConfigureCommercial(EntityTypeBuilder<CapabilityEntitlement> builder)
