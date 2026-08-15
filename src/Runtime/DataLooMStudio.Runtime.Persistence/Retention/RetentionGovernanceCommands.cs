@@ -13,3 +13,18 @@ public sealed record PlaceLegalHoldCommand(
     EvidenceId EvidenceId,
     string Reason,
     string? IdempotencyKey);
+
+public sealed record LegalHoldReleaseRequestCommand(
+    EvidenceId EvidenceId,
+    Guid LegalHoldId,
+    string Reason,
+    string? IdempotencyKey);
+
+public sealed record LegalHoldReleaseApprovalCommand(
+    Guid ReleaseRequestId,
+    string Reason,
+    string? IdempotencyKey);
+
+public sealed record DeletionEligibilityCommand(
+    EvidenceId EvidenceId,
+    string? IdempotencyKey);

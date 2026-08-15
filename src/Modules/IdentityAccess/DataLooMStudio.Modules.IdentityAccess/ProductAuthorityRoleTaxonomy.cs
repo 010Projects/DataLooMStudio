@@ -40,11 +40,18 @@ public static class ProductAuthorityRoleTaxonomy
         new(
             ProductAuthorityRoleNames.RetentionAdministrator,
             ProductAuthorityRoleClasses.ProductAdministrationRole,
-            [ProductAuthorityPermissions.ManageRetentionPolicy]),
+            [
+                ProductAuthorityPermissions.ManageRetentionPolicy,
+                ProductAuthorityPermissions.EvaluateDeletionEligibility
+            ]),
         new(
             ProductAuthorityRoleNames.LegalHoldAdministrator,
             ProductAuthorityRoleClasses.ProductAdministrationRole,
-            [ProductAuthorityPermissions.ManageLegalHold]),
+            [
+                ProductAuthorityPermissions.ManageLegalHold,
+                ProductAuthorityPermissions.RequestLegalHoldRelease,
+                ProductAuthorityPermissions.ApproveLegalHoldRelease
+            ]),
         new(
             ProductAuthorityRoleNames.CommercialAdministrator,
             ProductAuthorityRoleClasses.CommercialAdministrationRole,

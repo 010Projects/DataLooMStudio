@@ -81,6 +81,10 @@ public sealed class DataLooMDbContext(
 
     public DbSet<LegalHold> LegalHolds => Set<LegalHold>();
 
+    public DbSet<LegalHoldReleaseRequest> LegalHoldReleaseRequests => Set<LegalHoldReleaseRequest>();
+
+    public DbSet<DeletionEligibilityEvaluation> DeletionEligibilityEvaluations => Set<DeletionEligibilityEvaluation>();
+
     public DbSet<CapabilityEntitlement> CapabilityEntitlements => Set<CapabilityEntitlement>();
 
     public DbSet<LifecycleRecord> LifecycleRecords => Set<LifecycleRecord>();
@@ -116,7 +120,11 @@ public sealed class DataLooMDbContext(
             modelBuilder.Entity<EvidenceCandidateDecision>());
         ConfigureLineage(modelBuilder.Entity<LineageRelationship>());
         ConfigureAudit(modelBuilder.Entity<AuditEntry>());
-        ConfigureRetention(modelBuilder.Entity<RetentionPolicy>(), modelBuilder.Entity<LegalHold>());
+        ConfigureRetention(
+            modelBuilder.Entity<RetentionPolicy>(),
+            modelBuilder.Entity<LegalHold>(),
+            modelBuilder.Entity<LegalHoldReleaseRequest>(),
+            modelBuilder.Entity<DeletionEligibilityEvaluation>());
         ConfigureCommercial(modelBuilder.Entity<CapabilityEntitlement>());
         ConfigureLifecycle(modelBuilder.Entity<LifecycleRecord>());
         ConfigureWorkflows(modelBuilder.Entity<WorkflowRun>());
@@ -443,7 +451,9 @@ public sealed class DataLooMDbContext(
 
     private void ConfigureRetention(
         EntityTypeBuilder<RetentionPolicy> retentionPolicy,
-        EntityTypeBuilder<LegalHold> legalHold)
+        EntityTypeBuilder<LegalHold> legalHold,
+        EntityTypeBuilder<LegalHoldReleaseRequest> legalHoldReleaseRequest,
+        EntityTypeBuilder<DeletionEligibilityEvaluation> deletionEligibilityEvaluation)
     {
         retentionPolicy.ToTable("retention_policies", "retention");
         retentionPolicy.HasKey(policy => policy.Id);
@@ -463,12 +473,49 @@ public sealed class DataLooMDbContext(
         legalHold.Property(hold => hold.Reason).HasMaxLength(512).IsRequired();
         legalHold.Property(hold => hold.PlacedBy).HasMaxLength(256).IsRequired();
         legalHold.Property(hold => hold.ReleasedBy).HasMaxLength(256);
+        legalHold.Property(hold => hold.ReleaseReason).HasMaxLength(512);
         legalHold.Property(hold => hold.IdempotencyKey).HasMaxLength(128).IsRequired();
         legalHold.Property(hold => hold.RequestHash).HasMaxLength(64).IsRequired();
         legalHold.Property(hold => hold.ConcurrencyToken).IsConcurrencyToken();
         ConfigureWorkspaceScope(legalHold);
         legalHold.HasIndex(hold => new { hold.TenantId, hold.WorkspaceId, hold.EvidenceId, hold.ReleasedAt });
         legalHold.HasIndex(hold => new { hold.TenantId, hold.WorkspaceId, hold.IdempotencyKey }).IsUnique();
+
+        legalHoldReleaseRequest.ToTable("legal_hold_release_requests", "retention");
+        legalHoldReleaseRequest.HasKey(request => request.Id);
+        legalHoldReleaseRequest.Property(request => request.EvidenceId).HasConversion(EvidenceIdConverter).ValueGeneratedNever();
+        legalHoldReleaseRequest.Property(request => request.State).HasMaxLength(64).IsRequired();
+        legalHoldReleaseRequest.Property(request => request.RequestedBy).HasMaxLength(256).IsRequired();
+        legalHoldReleaseRequest.Property(request => request.RequestReason).HasMaxLength(512).IsRequired();
+        legalHoldReleaseRequest.Property(request => request.RequestPolicyIdentifier).HasMaxLength(128).IsRequired();
+        legalHoldReleaseRequest.Property(request => request.ApprovedBy).HasMaxLength(256);
+        legalHoldReleaseRequest.Property(request => request.ApprovalReason).HasMaxLength(512);
+        legalHoldReleaseRequest.Property(request => request.ApprovalPolicyIdentifier).HasMaxLength(128);
+        legalHoldReleaseRequest.Property(request => request.IdempotencyKey).HasMaxLength(128).IsRequired();
+        legalHoldReleaseRequest.Property(request => request.RequestHash).HasMaxLength(64).IsRequired();
+        legalHoldReleaseRequest.Property(request => request.ApprovalIdempotencyKey).HasMaxLength(128);
+        legalHoldReleaseRequest.Property(request => request.ApprovalRequestHash).HasMaxLength(64);
+        legalHoldReleaseRequest.Property(request => request.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(legalHoldReleaseRequest);
+        legalHoldReleaseRequest.HasIndex(request => new { request.TenantId, request.WorkspaceId, request.LegalHoldId, request.State });
+        legalHoldReleaseRequest.HasIndex(request => new { request.TenantId, request.WorkspaceId, request.IdempotencyKey }).IsUnique();
+        legalHoldReleaseRequest.HasIndex(request => new { request.TenantId, request.WorkspaceId, request.ApprovalIdempotencyKey }).IsUnique();
+
+        deletionEligibilityEvaluation.ToTable("deletion_eligibility_evaluations", "retention");
+        deletionEligibilityEvaluation.HasKey(evaluation => evaluation.Id);
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.EvidenceId).HasConversion(EvidenceIdConverter).ValueGeneratedNever();
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.RetentionPolicyKey).HasMaxLength(128).IsRequired();
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.LifecycleState).HasMaxLength(64).IsRequired();
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.ReasonCode).HasMaxLength(128).IsRequired();
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.Reason).HasMaxLength(512).IsRequired();
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.EvaluatedBy).HasMaxLength(256).IsRequired();
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.PolicyIdentifier).HasMaxLength(128).IsRequired();
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.IdempotencyKey).HasMaxLength(128).IsRequired();
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.RequestHash).HasMaxLength(64).IsRequired();
+        deletionEligibilityEvaluation.Property(evaluation => evaluation.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(deletionEligibilityEvaluation);
+        deletionEligibilityEvaluation.HasIndex(evaluation => new { evaluation.TenantId, evaluation.WorkspaceId, evaluation.EvidenceId, evaluation.EvaluatedAt });
+        deletionEligibilityEvaluation.HasIndex(evaluation => new { evaluation.TenantId, evaluation.WorkspaceId, evaluation.IdempotencyKey }).IsUnique();
     }
 
     private void ConfigureCommercial(EntityTypeBuilder<CapabilityEntitlement> builder)

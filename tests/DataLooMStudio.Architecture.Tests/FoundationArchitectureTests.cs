@@ -500,6 +500,7 @@ public sealed class FoundationArchitectureTests
 
             Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsEvidenceContentPermission);
             Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsEvidenceReviewOrDecisionPermission);
+            Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsRetentionOrLegalHoldPermission);
         }
     }
 
@@ -509,6 +510,9 @@ public sealed class FoundationArchitectureTests
         var evidenceSource = string.Join(
             Environment.NewLine,
             GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Modules", "Evidence")).Select(File.ReadAllText));
+        var retentionSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Modules", "Retention")).Select(File.ReadAllText));
         var apiSource = string.Join(
             Environment.NewLine,
             GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Api")).Select(File.ReadAllText));
@@ -522,10 +526,43 @@ public sealed class FoundationArchitectureTests
 
         Assert.DoesNotContain("ProductAuthorityRoleTaxonomy", evidenceSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ProductAuthorityRoleNames", evidenceSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductAuthorityRoleTaxonomy", retentionSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductAuthorityRoleNames", retentionSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ProductAuthorityRoleTaxonomy", apiSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ProductAuthorityRoleNames", apiSource, StringComparison.Ordinal);
         Assert.DoesNotContain("PermissionBundle", policySource, StringComparison.Ordinal);
         Assert.DoesNotContain("FindRole", policySource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Retention_release_and_deletion_eligibility_must_not_enable_physical_deletion()
+    {
+        var retentionModuleSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Modules", "Retention")).Select(File.ReadAllText));
+        var retentionRuntimeSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Runtime", "DataLooMStudio.Runtime.Persistence", "Retention")).Select(File.ReadAllText));
+        var apiSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Api")).Select(File.ReadAllText));
+        var webSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Web")).Select(File.ReadAllText));
+
+        Assert.Contains("DeletionEligibilityPolicy", retentionModuleSource, StringComparison.Ordinal);
+        Assert.Contains("DeletionEligibilityPolicy.Evaluate", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.Contains("RequestLegalHoldReleaseAsync", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.Contains("ApproveLegalHoldReleaseAsync", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.Contains("EvaluateDeletionEligibilityAsync", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.Contains("EvidencePhysicallyDeleted: false", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("EvidenceRecords.Remove", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("EvidenceVersions.Remove", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("RemoveRange", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("DeleteEvidence", apiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("DeletionEligibilityPolicy", apiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("DeletionEligibilityPolicy", webSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductAuthorityPermissions", webSource, StringComparison.Ordinal);
     }
 
     [Fact]
