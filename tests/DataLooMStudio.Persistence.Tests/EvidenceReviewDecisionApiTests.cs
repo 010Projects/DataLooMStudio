@@ -7,6 +7,7 @@ using System.Text.Encodings.Web;
 
 using DataLooMStudio.Infrastructure.SecurityScanning;
 using DataLooMStudio.Infrastructure.Storage;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Tenancy;
 using DataLooMStudio.Modules.Workspaces;
 using DataLooMStudio.SharedKernel.Identity;
@@ -16,6 +17,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -46,13 +48,20 @@ public sealed class EvidenceReviewDecisionApiTests(
             CancellationToken.None);
         var review = await reviewResponse.Content.ReadFromJsonAsync<EvidenceReviewRequestApiResponse>(
             cancellationToken: CancellationToken.None);
+        await SeedProductAuthorityAsync(
+            tenantId,
+            workspaceId,
+            review!.ReviewId,
+            ("api-review-owner", ProductAuthorityPermissions.ManageEvidenceReviewAssignments),
+            ("api-reviewer", ProductAuthorityPermissions.CreateEvidenceCandidateDecision),
+            ("api-approver", ProductAuthorityPermissions.ApplyEvidenceDecision));
         var reviewerAssignment = await client.PostAsJsonAsync(
-            $"/api/v1/workspaces/{workspaceId}/evidence-reviews/{review!.ReviewId}/assignments",
-            new EvidenceReviewerAssignmentApiRequest("api-reviewer", "EvidenceReviewer", "api-reviewer-assignment-001"),
+            $"/api/v1/workspaces/{workspaceId}/evidence-reviews/{review.ReviewId}/assignments",
+            new EvidenceReviewerAssignmentApiRequest("api-reviewer", ProductAuthorityPermissions.CreateEvidenceCandidateDecision, "api-reviewer-assignment-001"),
             CancellationToken.None);
         var approverAssignment = await client.PostAsJsonAsync(
             $"/api/v1/workspaces/{workspaceId}/evidence-reviews/{review.ReviewId}/assignments",
-            new EvidenceReviewerAssignmentApiRequest("api-approver", "EvidenceApprover", "api-approver-assignment-001"),
+            new EvidenceReviewerAssignmentApiRequest("api-approver", ProductAuthorityPermissions.ApplyEvidenceDecision, "api-approver-assignment-001"),
             CancellationToken.None);
 
         SetActorHeader(client, "api-reviewer");
@@ -98,9 +107,14 @@ public sealed class EvidenceReviewDecisionApiTests(
             CancellationToken.None);
         var review = await reviewResponse.Content.ReadFromJsonAsync<EvidenceReviewRequestApiResponse>(
             cancellationToken: CancellationToken.None);
+        await SeedProductAuthorityAsync(
+            tenantId,
+            workspaceId,
+            review!.ReviewId,
+            ("api-review-owner-denied", ProductAuthorityPermissions.ManageEvidenceReviewAssignments));
 
         var response = await client.PostAsJsonAsync(
-            $"/api/v1/workspaces/{workspaceId}/evidence-reviews/{review!.ReviewId}/assignments",
+            $"/api/v1/workspaces/{workspaceId}/evidence-reviews/{review.ReviewId}/assignments",
             new EvidenceReviewerAssignmentApiRequest("api-billing-admin", "BillingAdministrator", "api-denied-assignment-001"),
             CancellationToken.None);
 
@@ -222,6 +236,106 @@ public sealed class EvidenceReviewDecisionApiTests(
         await dbContext.SaveChangesAsync();
     }
 
+    private async Task SeedProductAuthorityAsync(
+        TenantId tenantId,
+        WorkspaceId workspaceId,
+        Guid reviewId,
+        params (string Subject, string PermissionKey)[] assignments)
+    {
+        var accessor = new DataLooMStudio.Infrastructure.RequestContext.RequestContextAccessor
+        {
+            Current = new RequestContext(
+                tenantId,
+                workspaceId,
+                new PrincipalSubject("authority-test-seeder"),
+                $"corr-{Guid.NewGuid():N}")
+        };
+        await using var dbContext = fixture.CreateDbContext(accessor);
+        foreach (var assignment in assignments.Distinct())
+        {
+            var actor = dbContext.ProductActors.Local
+                .SingleOrDefault(item => item.Subject == assignment.Subject);
+            actor ??= await dbContext.ProductActors
+                .SingleOrDefaultAsync(item => item.Subject == assignment.Subject);
+            if (actor is null)
+            {
+                actor = new ProductActor
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspaceId,
+                    Subject = assignment.Subject,
+                    DisplayName = assignment.Subject,
+                    State = ProductActorStates.Active,
+                    AuthorityVersion = 1,
+                    AuthorityChangedAt = DateTimeOffset.UtcNow,
+                    CreatedBy = "authority-test-seeder",
+                    CreatedAt = DateTimeOffset.UtcNow
+                };
+                dbContext.ProductActors.Add(actor);
+            }
+
+            if (!await dbContext.ProductTenantMemberships.AnyAsync(item =>
+                item.ActorSubject == assignment.Subject
+                && item.State == ProductMembershipStates.Active))
+            {
+                dbContext.ProductTenantMemberships.Add(new ProductTenantMembership
+                {
+                    TenantId = tenantId,
+                    ActorId = actor.Id,
+                    ActorSubject = assignment.Subject,
+                    State = ProductMembershipStates.Active,
+                    AuthorityVersion = actor.AuthorityVersion,
+                    GrantedBy = "authority-test-seeder",
+                    GrantedAt = DateTimeOffset.UtcNow,
+                    IdempotencyKey = $"api-tenant-authority-{Guid.NewGuid():N}",
+                    RequestHash = Sha256(Encoding.UTF8.GetBytes($"{assignment.Subject}|tenant"))
+                });
+            }
+
+            if (!await dbContext.ProductWorkspaceMemberships.AnyAsync(item =>
+                item.ActorSubject == assignment.Subject
+                && item.State == ProductMembershipStates.Active))
+            {
+                dbContext.ProductWorkspaceMemberships.Add(new ProductWorkspaceMembership
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspaceId,
+                    ActorId = actor.Id,
+                    ActorSubject = assignment.Subject,
+                    State = ProductMembershipStates.Active,
+                    AuthorityVersion = actor.AuthorityVersion,
+                    GrantedBy = "authority-test-seeder",
+                    GrantedAt = DateTimeOffset.UtcNow,
+                    IdempotencyKey = $"api-workspace-authority-{Guid.NewGuid():N}",
+                    RequestHash = Sha256(Encoding.UTF8.GetBytes($"{assignment.Subject}|workspace"))
+                });
+            }
+
+            var resourceId = assignment.PermissionKey == ProductAuthorityPermissions.ManageEvidenceReviewAssignments
+                ? ProductAuthorityResourceIds.Any
+                : reviewId.ToString("D");
+            dbContext.ProductPermissionAssignments.Add(new ProductPermissionAssignment
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ActorId = actor.Id,
+                ActorSubject = assignment.Subject,
+                PermissionKey = assignment.PermissionKey,
+                ResourceType = ProductAuthorityResourceTypes.EvidenceReview,
+                ResourceId = resourceId,
+                State = ProductPermissionAssignmentStates.Active,
+                AuthorityVersion = actor.AuthorityVersion,
+                AssignedBy = "authority-test-seeder",
+                AssignedAt = DateTimeOffset.UtcNow,
+                EffectiveFrom = DateTimeOffset.UtcNow,
+                IdempotencyKey = $"api-authority-{Guid.NewGuid():N}",
+                RequestHash = Sha256(Encoding.UTF8.GetBytes($"{assignment.Subject}|{assignment.PermissionKey}|{resourceId}"))
+            });
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
     private static string Sha256(byte[] content)
     {
         return Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
@@ -280,7 +394,7 @@ public sealed class EvidenceReviewDecisionApiTests(
 
     private sealed record EvidenceReviewerAssignmentApiRequest(
         string ReviewerSubject,
-        string Role,
+        string PermissionKey,
         string? IdempotencyKey);
 
     private sealed record EvidenceCandidateDecisionApiRequest(

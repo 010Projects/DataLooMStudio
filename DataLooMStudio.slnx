@@ -22,6 +22,9 @@
   <Folder Name="/src/Modules/Evidence/">
     <Project Path="src/Modules/Evidence/DataLooMStudio.Modules.Evidence/DataLooMStudio.Modules.Evidence.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/IdentityAccess/">
+    <Project Path="src/Modules/IdentityAccess/DataLooMStudio.Modules.IdentityAccess/DataLooMStudio.Modules.IdentityAccess.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Lifecycle/">
     <Project Path="src/Modules/Lifecycle/DataLooMStudio.Modules.Lifecycle/DataLooMStudio.Modules.Lifecycle.csproj" />
   </Folder>

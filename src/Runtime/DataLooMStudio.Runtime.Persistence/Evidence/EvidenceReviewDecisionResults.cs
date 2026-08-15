@@ -15,7 +15,7 @@ public sealed record EvidenceReviewerAssignmentResult(
     Guid AssignmentId,
     Guid ReviewId,
     string ReviewerSubject,
-    string Role,
+    string PermissionKey,
     bool IdempotentReplay);
 
 public sealed record EvidenceCandidateDecisionResult(

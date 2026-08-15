@@ -4,6 +4,7 @@ using System.Xml.Linq;
 using DataLooMStudio.Infrastructure.DependencyInjection;
 using DataLooMStudio.Modules.AiGovernance;
 using DataLooMStudio.Modules.Evidence;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Lifecycle;
 using DataLooMStudio.Modules.Workflows;
 using DataLooMStudio.Runtime.Persistence.Migrations;
@@ -381,7 +382,50 @@ public sealed class FoundationArchitectureTests
     }
 
     [Fact]
-    public void Evidence_review_runtime_must_delegate_authority_to_module_policies()
+    public void Identity_access_module_must_own_product_authority_policy()
+    {
+        var manifest = new IdentityAccessModule().Manifest;
+        var identityModuleRoot = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Modules",
+            "IdentityAccess",
+            "DataLooMStudio.Modules.IdentityAccess");
+        var productAuthorityPolicy = Path.Combine(identityModuleRoot, "ProductAuthorityPolicy.cs");
+        var productAuthorityPermissions = Path.Combine(identityModuleRoot, "ProductAuthorityPermissions.cs");
+        var source = string.Join(
+            Environment.NewLine,
+            new[] { productAuthorityPolicy, productAuthorityPermissions }.Select(File.ReadAllText));
+        var forbiddenImports = new[]
+            {
+                productAuthorityPolicy,
+                productAuthorityPermissions
+            }
+            .Where(file =>
+            {
+                var fileSource = File.ReadAllText(file);
+                return fileSource.Contains("Microsoft.EntityFrameworkCore", StringComparison.Ordinal)
+                    || fileSource.Contains("Microsoft.AspNetCore", StringComparison.Ordinal)
+                    || fileSource.Contains("DataLooMStudio.Runtime", StringComparison.Ordinal);
+            })
+            .Select(RelativeToRepository)
+            .ToArray();
+
+        Assert.Equal(ModuleBoundaryKind.IdentityAccess, manifest.BoundaryKind);
+        Assert.True(manifest.RequiresTenantContext);
+        Assert.True(manifest.RequiresWorkspaceContext);
+        Assert.True(manifest.OwnsTransactionalOutbox);
+        Assert.False(manifest.ContainsAiExecution);
+        Assert.Contains(manifest.Responsibilities, responsibility => responsibility.Contains("Canonical permission", StringComparison.Ordinal));
+        Assert.Contains("CanUsePermission", source, StringComparison.Ordinal);
+        Assert.Contains("CanSatisfySeparationOfDuty", source, StringComparison.Ordinal);
+        Assert.Contains("EvidenceReview.CandidateDecision.Create", source, StringComparison.Ordinal);
+        Assert.Contains("EvidenceReview.Decision.Apply", source, StringComparison.Ordinal);
+        Assert.Empty(forbiddenImports);
+    }
+
+    [Fact]
+    public void Evidence_review_runtime_must_delegate_authority_to_module_policies_and_product_authority()
     {
         var reviewService = Path.Combine(
             RepositoryRoot,
@@ -397,9 +441,255 @@ public sealed class FoundationArchitectureTests
 
         Assert.Contains("EvidenceReviewPolicy.", source, StringComparison.Ordinal);
         Assert.Contains("EvidenceDecisionPolicy.", source, StringComparison.Ordinal);
+        Assert.Contains("IProductAuthorityService", source, StringComparison.Ordinal);
+        Assert.Contains("ProductAuthorityPermissions.", source, StringComparison.Ordinal);
+        Assert.Contains("RequireProductPermissionAsync", source, StringComparison.Ordinal);
+        Assert.Contains("RequireSeparationOfDutyAsync", source, StringComparison.Ordinal);
         Assert.DoesNotContain("DataLooMStudio.Modules", apiSource, StringComparison.Ordinal);
         Assert.DoesNotContain("EvidenceDecisionPolicy", apiSource, StringComparison.Ordinal);
         Assert.DoesNotContain("EvidenceReviewPolicy", apiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductAuthorityPolicy", apiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductAuthorityPermissions", apiSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Evidence_review_authority_must_not_use_local_role_taxonomy_in_active_code()
+    {
+        var activeSourceRoots = new[]
+        {
+            Path.Combine(RepositoryRoot, "src", "Modules"),
+            Path.Combine(RepositoryRoot, "src", "Runtime"),
+            Path.Combine(RepositoryRoot, "src", "Api")
+        };
+        var forbiddenTokens = new[]
+        {
+            "EvidenceReviewAuthorityRoles",
+            "\"EvidenceReviewer\"",
+            "\"EvidenceApprover\"",
+            "'EvidenceReviewer'",
+            "'EvidenceApprover'"
+        };
+        var violations = activeSourceRoots
+            .SelectMany(GetSourceFiles)
+            .Where(file => !IsUnder(file, "src", "Runtime", "DataLooMStudio.Runtime.Persistence", "Migrations"))
+            .Select(file => new
+            {
+                File = file,
+                Tokens = forbiddenTokens
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Identity_access_security_controls_must_remain_inside_identity_access_boundary()
+    {
+        var identityModuleRoot = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Modules",
+            "IdentityAccess",
+            "DataLooMStudio.Modules.IdentityAccess");
+        var requiredFiles = new[]
+        {
+            "ProductAuthorityPolicyInput.cs",
+            "ProductAuthorityDenyReasonCodes.cs",
+            "ProductTenantMembership.cs",
+            "ProductWorkspaceMembership.cs",
+            "ProductAuthorityElevation.cs",
+            "ProductWorkloadIdentityMatrix.cs",
+            "AuthenticatedExternalPrincipal.cs",
+            "ValidatedIdentityCorrelation.cs"
+        };
+        var forbiddenTokens = new[]
+        {
+            "Microsoft.EntityFrameworkCore",
+            "Microsoft.AspNetCore",
+            "Azure.Identity",
+            "Microsoft.Identity",
+            "System.Security.Claims.ClaimsPrincipal",
+            "JwtBearer"
+        };
+        var violations = GetSourceFiles(identityModuleRoot)
+            .Select(file => new
+            {
+                File = file,
+                Tokens = forbiddenTokens
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.All(requiredFiles, file => Assert.True(File.Exists(Path.Combine(identityModuleRoot, file)), file));
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void BuildingBlocks_must_not_contain_product_authority_or_role_taxonomy()
+    {
+        var forbiddenTokens = new[]
+        {
+            "ProductAuthority",
+            "ProductActor",
+            "EvidenceReviewer",
+            "EvidenceApprover",
+            "PlatformAdmin",
+            "CommercialAdmin",
+            "BillingAdmin"
+        };
+        var violations = GetSourceFiles(Path.Combine(RepositoryRoot, "src", "BuildingBlocks"))
+            .Select(file => new
+            {
+                File = file,
+                Tokens = forbiddenTokens
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Commercial_entitlements_must_not_grant_review_or_decision_authority()
+    {
+        var forbiddenTokens = new[]
+        {
+            "ProductAuthorityPolicy",
+            "ProductAuthorityPermissions",
+            "EvidenceReview.",
+            "EvidenceReviewDecision",
+            "Decision.Apply"
+        };
+        var violations = GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Modules", "Commercial"))
+            .Select(file => new
+            {
+                File = file,
+                Tokens = forbiddenTokens
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Product_authority_external_identity_boundary_must_be_provider_neutral()
+    {
+        var identityModuleRoot = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Modules",
+            "IdentityAccess",
+            "DataLooMStudio.Modules.IdentityAccess");
+        var boundarySources = new[]
+        {
+            Path.Combine(identityModuleRoot, "AuthenticatedExternalPrincipal.cs"),
+            Path.Combine(identityModuleRoot, "ValidatedIdentityCorrelation.cs"),
+            Path.Combine(identityModuleRoot, "ProductActorCorrelationPolicy.cs")
+        };
+        var source = string.Join(Environment.NewLine, boundarySources.Select(File.ReadAllText));
+
+        Assert.Contains("AuthenticatedExternalPrincipal", source, StringComparison.Ordinal);
+        Assert.Contains("ValidatedIdentityCorrelation", source, StringComparison.Ordinal);
+        Assert.Contains("ProductActorSubject", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ClaimsPrincipal", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("JwtSecurityToken", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("AccessToken", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Azure.Identity", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Workload_identity_matrix_must_prohibit_human_approval_impersonation()
+    {
+        var profiles = ProductWorkloadIdentityMatrix.All.ToDictionary(profile => profile.WorkloadName, StringComparer.Ordinal);
+
+        Assert.Contains("dls-web", profiles.Keys);
+        Assert.Contains("dls-worker", profiles.Keys);
+        Assert.Contains("dls-migrate", profiles.Keys);
+        Assert.Contains("scanner", profiles.Keys);
+        Assert.Contains("reconciliation", profiles.Keys);
+        Assert.Contains("support-tooling", profiles.Keys);
+        Assert.All(profiles.Values, profile => Assert.False(profile.MayImpersonateHumanApprover));
+        Assert.Contains(ProductAuthorityPermissions.ApplyEvidenceDecision, profiles["dls-migrate"].ProhibitedPermissions);
+        Assert.Contains(ProductAuthorityPermissions.CreateEvidenceCandidateDecision, profiles["scanner"].ProhibitedPermissions);
+        Assert.Contains(ProductAuthorityPermissions.ReadEvidence, profiles["support-tooling"].ProhibitedPermissions);
+    }
+
+    [Fact]
+    public void Identity_access_migration_must_preserve_evidence_assignment_history()
+    {
+        var migration = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Runtime",
+            "DataLooMStudio.Runtime.Persistence",
+            "Migrations",
+            "20260812164608_IdentityAccessProductAuthority.cs");
+        var source = File.ReadAllText(migration);
+
+        Assert.Contains("RenameColumn", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DropColumn(\r\n                name: \"Role\"", source, StringComparison.Ordinal);
+        Assert.Contains("when 'EvidenceReviewer' then 'EvidenceReview.CandidateDecision.Create'", source, StringComparison.Ordinal);
+        Assert.Contains("when 'EvidenceApprover' then 'EvidenceReview.Decision.Apply'", source, StringComparison.Ordinal);
+        Assert.Contains("insert into identity_access.product_actors", source, StringComparison.Ordinal);
+        Assert.Contains("insert into identity_access.product_permission_assignments", source, StringComparison.Ordinal);
+        Assert.Contains("enable row level security", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CK_product_permission_assignments_permission_key", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Identity_access_security_migration_must_seed_memberships_and_enforce_rls()
+    {
+        var migration = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Runtime",
+            "DataLooMStudio.Runtime.Persistence",
+            "Migrations",
+            "20260812183021_IdentityAccessSecurityControls.cs");
+        var source = File.ReadAllText(migration);
+
+        Assert.Contains("insert into identity_access.product_tenant_memberships", source, StringComparison.Ordinal);
+        Assert.Contains("insert into identity_access.product_workspace_memberships", source, StringComparison.Ordinal);
+        Assert.Contains("alter table identity_access.product_tenant_memberships enable row level security", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("alter table identity_access.product_workspace_memberships enable row level security", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("alter table identity_access.product_authority_elevations enable row level security", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CK_product_authority_elevations_effective_window", source, StringComparison.Ordinal);
+        Assert.Contains("CK_product_permission_assignments_authority_version", source, StringComparison.Ordinal);
+        Assert.Contains("Evidence.Read.Restricted", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Architecture_erd_conditions_must_be_carried_as_governance_evidence()
+    {
+        var conditionRecord = Path.Combine(
+            RepositoryRoot,
+            "governance",
+            "architecture-conditions",
+            "ARCH-ERD-001-through-005.md");
+        var source = File.ReadAllText(conditionRecord);
+
+        Assert.Contains("ARCH-ERD-001", source, StringComparison.Ordinal);
+        Assert.Contains("ARCH-ERD-002", source, StringComparison.Ordinal);
+        Assert.Contains("ARCH-ERD-003", source, StringComparison.Ordinal);
+        Assert.Contains("ARCH-ERD-004", source, StringComparison.Ordinal);
+        Assert.Contains("ARCH-ERD-005", source, StringComparison.Ordinal);
+        Assert.Contains("material condition", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("DLS-INC-002-EVID-001", source, StringComparison.Ordinal);
+        Assert.Contains("DLS-INC-002-PROD-DEC-001", source, StringComparison.Ordinal);
     }
 
     [Fact]

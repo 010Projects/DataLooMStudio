@@ -1,6 +1,7 @@
 using DataLooMStudio.Infrastructure.Configuration;
 using DataLooMStudio.Infrastructure.Outbox;
 using DataLooMStudio.Runtime.Persistence.Evidence;
+using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.Runtime.Persistence.Outbox;
 using DataLooMStudio.Runtime.Persistence.Security;
 
@@ -32,6 +33,8 @@ public static class DataLooMPersistenceServiceCollectionExtensions
         });
 
         services.TryAddScoped<IOutboxWriter, EfOutboxWriter>();
+        services.TryAddScoped<IProductAuthorityAuditStore, ProductAuthorityAuditStore>();
+        services.TryAddScoped<IProductAuthorityService, ProductAuthorityService>();
         services.TryAddScoped<IEvidenceRegistrationService, EvidenceRegistrationService>();
         services.TryAddScoped<IEvidenceContentService, EvidenceContentService>();
         services.TryAddScoped<IEvidenceReviewDecisionService, EvidenceReviewDecisionService>();

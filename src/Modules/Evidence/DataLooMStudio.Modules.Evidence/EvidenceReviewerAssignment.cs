@@ -15,7 +15,7 @@ public sealed class EvidenceReviewerAssignment : IWorkspaceScoped
 
     public string ReviewerSubject { get; init; } = string.Empty;
 
-    public string Role { get; init; } = EvidenceReviewAuthorityRoles.Reviewer;
+    public string PermissionKey { get; init; } = string.Empty;
 
     public string AssignedBy { get; init; } = string.Empty;
 

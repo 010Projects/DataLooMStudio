@@ -73,28 +73,23 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public DataLooMDbContext CreateDbContext()
     {
-        var options = new DbContextOptionsBuilder<DataLooMDbContext>()
+        return new DataLooMDbContext(CreateDbContextOptions());
+    }
+
+    public DbContextOptions<DataLooMDbContext> CreateDbContextOptions()
+    {
+        return new DbContextOptionsBuilder<DataLooMDbContext>()
             .UseNpgsql(AdminConnectionString, npgsql =>
             {
                 npgsql.MigrationsAssembly(typeof(DataLooMDbContext).Assembly.FullName);
                 npgsql.MigrationsHistoryTable("__ef_migrations_history", "foundation");
             })
             .Options;
-
-        return new DataLooMDbContext(options);
     }
 
     public DataLooMDbContext CreateDbContext(DataLooMStudio.SharedKernel.RequestContext.IRequestContextAccessor accessor)
     {
-        var options = new DbContextOptionsBuilder<DataLooMDbContext>()
-            .UseNpgsql(AdminConnectionString, npgsql =>
-            {
-                npgsql.MigrationsAssembly(typeof(DataLooMDbContext).Assembly.FullName);
-                npgsql.MigrationsHistoryTable("__ef_migrations_history", "foundation");
-            })
-            .Options;
-
-        return new DataLooMDbContext(options, accessor);
+        return new DataLooMDbContext(CreateDbContextOptions(), accessor);
     }
 
     private async Task CreateApplicationRoleAsync()

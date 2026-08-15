@@ -6,9 +6,11 @@ using DataLooMStudio.Infrastructure.RequestContext;
 using DataLooMStudio.Infrastructure.SecurityScanning;
 using DataLooMStudio.Infrastructure.Storage;
 using DataLooMStudio.Modules.Evidence;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Tenancy;
 using DataLooMStudio.Modules.Workspaces;
 using DataLooMStudio.Runtime.Persistence.Evidence;
+using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.Runtime.Persistence.Outbox;
 using DataLooMStudio.Runtime.Persistence.Security;
 using DataLooMStudio.SharedKernel.Abstractions;
@@ -56,6 +58,81 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
     }
 
     [Fact]
+    public async Task Denied_product_authority_operation_persists_durable_denial_audit_without_product_mutation()
+    {
+        var scenario = await CreateAvailableEvidenceAsync("durable-denial-audit");
+        await using var ownerDbContext = fixture.CreateDbContext(scenario.Accessor);
+        var ownerService = CreateReviewDecisionService(ownerDbContext, scenario.Accessor, scenario.Clock);
+        var review = await RequestReviewAsync(ownerService, scenario, "durable-denial-review-001");
+
+        await Assert.ThrowsAsync<EvidenceReviewDecisionForbiddenException>(() => ownerService.AssignReviewerAsync(
+            new EvidenceReviewerAssignmentCommand(review.ReviewId, "denied-reviewer", ProductAuthorityPermissions.CreateEvidenceCandidateDecision, "durable-denial-assignment-001"),
+            CancellationToken.None));
+
+        await using var verificationDbContext = fixture.CreateDbContext(scenario.Accessor);
+        Assert.Equal(0, await verificationDbContext.EvidenceReviewerAssignments.CountAsync(assignment => assignment.ReviewRequestId == review.ReviewId));
+        Assert.True(await verificationDbContext.AuditEntries.AnyAsync(audit =>
+            audit.Action == "ProductAuthority.Denied"
+            && audit.Outcome == "Deny"));
+    }
+
+    [Fact]
+    public async Task Successful_authority_sensitive_mutation_persists_product_and_authority_audits_transactionally()
+    {
+        var scenario = await CreateAvailableEvidenceAsync("transactional-authority-audit");
+        var review = await CreateReviewWithAssignmentsAsync(
+            scenario,
+            assignReviewer: true,
+            assignApprover: false,
+            reviewerSubject: "transactional-reviewer");
+
+        await using var verificationDbContext = fixture.CreateDbContext(scenario.Accessor);
+        Assert.Equal(1, await verificationDbContext.EvidenceReviewerAssignments.CountAsync(assignment =>
+            assignment.ReviewRequestId == review.ReviewId
+            && assignment.ReviewerSubject == "transactional-reviewer"));
+        Assert.True(await verificationDbContext.AuditEntries.AnyAsync(audit =>
+            audit.Action == "ProductAuthority.Evaluated"
+            && audit.Outcome == "Permit"));
+        Assert.True(await verificationDbContext.AuditEntries.AnyAsync(audit =>
+            audit.Action == "EvidenceReview.ReviewerAssigned"
+            && audit.Outcome == "Succeeded"));
+    }
+
+    [Fact]
+    public async Task Mandatory_authority_audit_failure_blocks_consequential_product_mutation()
+    {
+        var scenario = await CreateAvailableEvidenceAsync("authority-audit-failure");
+        await using (var ownerDbContext = fixture.CreateDbContext(scenario.Accessor))
+        {
+            var ownerService = CreateReviewDecisionService(ownerDbContext, scenario.Accessor, scenario.Clock);
+            var review = await RequestReviewAsync(ownerService, scenario, "authority-audit-failure-review-001");
+            await SeedProductAuthorityAsync(
+                scenario,
+                review.ReviewId,
+                ("evidence-owner", ProductAuthorityPermissions.ManageEvidenceReviewAssignments),
+                ("audit-failure-reviewer", ProductAuthorityPermissions.CreateEvidenceCandidateDecision));
+        }
+
+        await using var failingDbContext = fixture.CreateDbContext(scenario.Accessor);
+        var failingService = CreateReviewDecisionService(
+            failingDbContext,
+            scenario.Accessor,
+            scenario.Clock,
+            authorityAuditStore: new FailingProductAuthorityAuditStore());
+        var protectedReviewId = await failingDbContext.EvidenceReviewRequests
+            .Select(review => review.Id)
+            .SingleAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => failingService.AssignReviewerAsync(
+            new EvidenceReviewerAssignmentCommand(protectedReviewId, "audit-failure-reviewer", ProductAuthorityPermissions.CreateEvidenceCandidateDecision, "authority-audit-failure-assignment-001"),
+            CancellationToken.None));
+
+        await using var verificationDbContext = fixture.CreateDbContext(scenario.Accessor);
+        Assert.Equal(0, await verificationDbContext.EvidenceReviewerAssignments.CountAsync(assignment =>
+            assignment.ReviewRequestId == protectedReviewId));
+    }
+
+    [Fact]
     public async Task Unassigned_reviewer_cannot_create_candidate_decision()
     {
         var scenario = await CreateAvailableEvidenceAsync("unassigned-candidate");
@@ -70,6 +147,45 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
         await Assert.ThrowsAsync<EvidenceReviewDecisionForbiddenException>(() => reviewerService.CreateCandidateDecisionAsync(
             new EvidenceCandidateDecisionCommand(review.ReviewId, EvidenceDecisionTypes.Accept, "approve evidence", null, "unassigned-candidate-001"),
             CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Cross_tenant_context_cannot_access_evidence_review_decision_or_lineage()
+    {
+        var protectedScenario = await CreateAvailableEvidenceAsync("cross-tenant-protected");
+        var protectedReview = await CreateReviewWithAssignmentsAsync(
+            protectedScenario,
+            assignReviewer: true,
+            assignApprover: true);
+        var protectedCandidate = await CreateCandidateAsync(
+            protectedScenario,
+            protectedReview.ReviewId,
+            EvidenceDecisionTypes.Accept,
+            "protected tenant candidate",
+            "protected-candidate-001");
+        await using (var protectedDbContext = fixture.CreateDbContext(protectedScenario.Accessor))
+        {
+            Assert.True(await protectedDbContext.LineageRelationships.AnyAsync());
+        }
+
+        var tenantAId = TenantId.New();
+        var workspaceAId = WorkspaceId.New();
+        var tenantAAccessor = CreateRequestContext(tenantAId, workspaceAId, "tenant-a-actor");
+        await SeedTenantAndWorkspaceAsync(tenantAId, workspaceAId, tenantAAccessor);
+        await using var tenantADbContext = fixture.CreateDbContext(tenantAAccessor);
+        var tenantAService = CreateReviewDecisionService(tenantADbContext, tenantAAccessor, protectedScenario.Clock);
+
+        await Assert.ThrowsAsync<EvidenceReviewDecisionForbiddenException>(() => tenantAService.RequestReviewAsync(
+            new EvidenceReviewRequestCommand(protectedScenario.EvidenceId, protectedScenario.VersionId, "EvidenceReview", null, "cross-tenant-evidence-001"),
+            CancellationToken.None));
+        await Assert.ThrowsAsync<EvidenceReviewDecisionForbiddenException>(() => tenantAService.AssignReviewerAsync(
+            new EvidenceReviewerAssignmentCommand(protectedReview.ReviewId, "tenant-a-reviewer", ProductAuthorityPermissions.CreateEvidenceCandidateDecision, "cross-tenant-review-001"),
+            CancellationToken.None));
+        await Assert.ThrowsAsync<EvidenceReviewDecisionForbiddenException>(() => tenantAService.ApplyDecisionAsync(
+            new EvidenceApplyDecisionCommand(protectedReview.ReviewId, protectedCandidate.CandidateDecisionId, EvidenceDecisionTypes.Accept, protectedCandidate.Version, null, "cross-tenant-decision-001"),
+            CancellationToken.None));
+
+        Assert.Equal(0, await tenantADbContext.LineageRelationships.CountAsync());
     }
 
     [Fact]
@@ -101,7 +217,12 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
     public async Task Candidate_creator_cannot_apply_authoritative_decision()
     {
         var scenario = await CreateAvailableEvidenceAsync("creator-cannot-approve");
-        var review = await CreateReviewWithAssignmentsAsync(scenario, assignReviewer: false, assignApprover: true, reviewerSubject: "candidate-creator");
+        var review = await CreateReviewWithAssignmentsAsync(
+            scenario,
+            assignReviewer: true,
+            assignApprover: true,
+            reviewerSubject: "candidate-creator",
+            approverSubject: "candidate-creator");
         var actorAccessor = CreateRequestContext(scenario.TenantId, scenario.WorkspaceId, "candidate-creator");
         await using var actorDbContext = fixture.CreateDbContext(actorAccessor);
         var actorService = CreateReviewDecisionService(actorDbContext, actorAccessor, scenario.Clock);
@@ -239,30 +360,134 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
         AvailableEvidence scenario,
         bool assignReviewer,
         bool assignApprover,
-        string reviewerSubject = "evidence-reviewer")
+        string reviewerSubject = "evidence-reviewer",
+        string approverSubject = "evidence-approver")
     {
         await using var ownerDbContext = fixture.CreateDbContext(scenario.Accessor);
         var ownerService = CreateReviewDecisionService(ownerDbContext, scenario.Accessor, scenario.Clock);
         var review = await RequestReviewAsync(ownerService, scenario, $"review-{Guid.NewGuid():N}");
+        await SeedProductAuthorityAsync(
+            scenario,
+            review.ReviewId,
+            ("evidence-owner", ProductAuthorityPermissions.ManageEvidenceReviewAssignments),
+            (reviewerSubject, ProductAuthorityPermissions.CreateEvidenceCandidateDecision),
+            (approverSubject, ProductAuthorityPermissions.ApplyEvidenceDecision));
 
         if (assignReviewer)
         {
             await ownerService.AssignReviewerAsync(
-                new EvidenceReviewerAssignmentCommand(review.ReviewId, reviewerSubject, EvidenceReviewAuthorityRoles.Reviewer, $"assign-reviewer-{Guid.NewGuid():N}"),
+                new EvidenceReviewerAssignmentCommand(review.ReviewId, reviewerSubject, ProductAuthorityPermissions.CreateEvidenceCandidateDecision, $"assign-reviewer-{Guid.NewGuid():N}"),
                 CancellationToken.None);
         }
 
         if (assignApprover)
         {
-            var approverSubject = reviewerSubject == "candidate-creator"
-                ? reviewerSubject
-                : "evidence-approver";
             await ownerService.AssignReviewerAsync(
-                new EvidenceReviewerAssignmentCommand(review.ReviewId, approverSubject, EvidenceReviewAuthorityRoles.Approver, $"assign-approver-{Guid.NewGuid():N}"),
+                new EvidenceReviewerAssignmentCommand(review.ReviewId, approverSubject, ProductAuthorityPermissions.ApplyEvidenceDecision, $"assign-approver-{Guid.NewGuid():N}"),
                 CancellationToken.None);
         }
 
         return review;
+    }
+
+    private async Task SeedProductAuthorityAsync(
+        AvailableEvidence scenario,
+        Guid reviewId,
+        params (string Subject, string PermissionKey)[] assignments)
+    {
+        await using var dbContext = fixture.CreateDbContext(scenario.Accessor);
+        foreach (var assignment in assignments.Distinct())
+        {
+            var actor = dbContext.ProductActors.Local
+                .SingleOrDefault(item => item.Subject == assignment.Subject);
+            actor ??= await dbContext.ProductActors
+                .SingleOrDefaultAsync(item => item.Subject == assignment.Subject);
+            if (actor is null)
+            {
+                actor = new ProductActor
+                {
+                    TenantId = scenario.TenantId,
+                    WorkspaceId = scenario.WorkspaceId,
+                    Subject = assignment.Subject,
+                    DisplayName = assignment.Subject,
+                    State = ProductActorStates.Active,
+                    AuthorityVersion = 1,
+                    AuthorityChangedAt = scenario.Clock.UtcNow,
+                    CreatedBy = "authority-test-seeder",
+                    CreatedAt = scenario.Clock.UtcNow
+                };
+                dbContext.ProductActors.Add(actor);
+            }
+
+            if (!await dbContext.ProductTenantMemberships.AnyAsync(item =>
+                item.ActorSubject == assignment.Subject
+                && item.State == ProductMembershipStates.Active))
+            {
+                dbContext.ProductTenantMemberships.Add(new ProductTenantMembership
+                {
+                    TenantId = scenario.TenantId,
+                    ActorId = actor.Id,
+                    ActorSubject = assignment.Subject,
+                    State = ProductMembershipStates.Active,
+                    AuthorityVersion = actor.AuthorityVersion,
+                    GrantedBy = "authority-test-seeder",
+                    GrantedAt = scenario.Clock.UtcNow,
+                    IdempotencyKey = $"tenant-authority-{Guid.NewGuid():N}",
+                    RequestHash = Sha256(Encoding.UTF8.GetBytes($"{assignment.Subject}|tenant"))
+                });
+            }
+
+            if (!await dbContext.ProductWorkspaceMemberships.AnyAsync(item =>
+                item.ActorSubject == assignment.Subject
+                && item.State == ProductMembershipStates.Active))
+            {
+                dbContext.ProductWorkspaceMemberships.Add(new ProductWorkspaceMembership
+                {
+                    TenantId = scenario.TenantId,
+                    WorkspaceId = scenario.WorkspaceId,
+                    ActorId = actor.Id,
+                    ActorSubject = assignment.Subject,
+                    State = ProductMembershipStates.Active,
+                    AuthorityVersion = actor.AuthorityVersion,
+                    GrantedBy = "authority-test-seeder",
+                    GrantedAt = scenario.Clock.UtcNow,
+                    IdempotencyKey = $"workspace-authority-{Guid.NewGuid():N}",
+                    RequestHash = Sha256(Encoding.UTF8.GetBytes($"{assignment.Subject}|workspace"))
+                });
+            }
+
+            var resourceId = assignment.PermissionKey == ProductAuthorityPermissions.ManageEvidenceReviewAssignments
+                ? ProductAuthorityResourceIds.Any
+                : reviewId.ToString("D");
+            var exists = await dbContext.ProductPermissionAssignments.AnyAsync(item =>
+                item.ActorSubject == assignment.Subject
+                && item.PermissionKey == assignment.PermissionKey
+                && item.ResourceType == ProductAuthorityResourceTypes.EvidenceReview
+                && item.ResourceId == resourceId
+                && item.State == ProductPermissionAssignmentStates.Active);
+            if (!exists)
+            {
+                dbContext.ProductPermissionAssignments.Add(new ProductPermissionAssignment
+                {
+                    TenantId = scenario.TenantId,
+                    WorkspaceId = scenario.WorkspaceId,
+                    ActorId = actor.Id,
+                    ActorSubject = assignment.Subject,
+                    PermissionKey = assignment.PermissionKey,
+                    ResourceType = ProductAuthorityResourceTypes.EvidenceReview,
+                    ResourceId = resourceId,
+                    State = ProductPermissionAssignmentStates.Active,
+                    AuthorityVersion = actor.AuthorityVersion,
+                    AssignedBy = "authority-test-seeder",
+                    AssignedAt = scenario.Clock.UtcNow,
+                    EffectiveFrom = scenario.Clock.UtcNow,
+                    IdempotencyKey = $"authority-{Guid.NewGuid():N}",
+                    RequestHash = Sha256(Encoding.UTF8.GetBytes($"{assignment.Subject}|{assignment.PermissionKey}|{resourceId}"))
+                });
+            }
+        }
+
+        await dbContext.SaveChangesAsync();
     }
 
     private async Task<EvidenceCandidateDecisionResult> CreateCandidateAsync(
@@ -413,11 +638,12 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
             scanner);
     }
 
-    private static EvidenceReviewDecisionService CreateReviewDecisionService(
+    private EvidenceReviewDecisionService CreateReviewDecisionService(
         DataLooMStudio.Runtime.Persistence.DataLooMDbContext dbContext,
         IRequestContextAccessor accessor,
         IClock clock,
-        IOutboxWriter? outboxWriter = null)
+        IOutboxWriter? outboxWriter = null,
+        IProductAuthorityAuditStore? authorityAuditStore = null)
     {
         var rls = new PostgresRlsSessionContext(dbContext, accessor);
         return new EvidenceReviewDecisionService(
@@ -425,6 +651,11 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
             accessor,
             clock,
             outboxWriter ?? new EfOutboxWriter(dbContext),
+            new ProductAuthorityService(
+                dbContext,
+                accessor,
+                clock,
+                authorityAuditStore ?? new ProductAuthorityAuditStore(fixture.CreateDbContextOptions())),
             rls);
     }
 
@@ -465,6 +696,23 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
         public Task AddAsync(OutboxMessage message, CancellationToken cancellationToken)
         {
             throw new InvalidOperationException("Synthetic outbox failure.");
+        }
+    }
+
+    private sealed class FailingProductAuthorityAuditStore : IProductAuthorityAuditStore
+    {
+        public void AddTransactionalAudit(
+            DataLooMStudio.Runtime.Persistence.DataLooMDbContext dbContext,
+            ProductAuthorityAuditRecord auditRecord)
+        {
+            throw new InvalidOperationException("Synthetic authority audit failure.");
+        }
+
+        public Task PersistDurableDenialAsync(
+            ProductAuthorityAuditRecord auditRecord,
+            CancellationToken cancellationToken)
+        {
+            throw new InvalidOperationException("Synthetic durable authority audit failure.");
         }
     }
 }

@@ -3,6 +3,7 @@ using DataLooMStudio.Modules.AiGovernance;
 using DataLooMStudio.Modules.Audit;
 using DataLooMStudio.Modules.Commercial;
 using DataLooMStudio.Modules.Evidence;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Lifecycle;
 using DataLooMStudio.Modules.Lineage;
 using DataLooMStudio.Modules.Retention;
@@ -48,6 +49,16 @@ public sealed class DataLooMDbContext(
 
     public DbSet<Workspace> Workspaces => Set<Workspace>();
 
+    public DbSet<ProductActor> ProductActors => Set<ProductActor>();
+
+    public DbSet<ProductTenantMembership> ProductTenantMemberships => Set<ProductTenantMembership>();
+
+    public DbSet<ProductWorkspaceMembership> ProductWorkspaceMemberships => Set<ProductWorkspaceMembership>();
+
+    public DbSet<ProductPermissionAssignment> ProductPermissionAssignments => Set<ProductPermissionAssignment>();
+
+    public DbSet<ProductAuthorityElevation> ProductAuthorityElevations => Set<ProductAuthorityElevation>();
+
     public DbSet<EvidenceRecord> EvidenceRecords => Set<EvidenceRecord>();
 
     public DbSet<EvidenceVersion> EvidenceVersions => Set<EvidenceVersion>();
@@ -88,6 +99,12 @@ public sealed class DataLooMDbContext(
     {
         ConfigureTenancy(modelBuilder.Entity<Tenant>());
         ConfigureWorkspaces(modelBuilder.Entity<Workspace>());
+        ConfigureIdentityAccess(
+            modelBuilder.Entity<ProductActor>(),
+            modelBuilder.Entity<ProductTenantMembership>(),
+            modelBuilder.Entity<ProductWorkspaceMembership>(),
+            modelBuilder.Entity<ProductPermissionAssignment>(),
+            modelBuilder.Entity<ProductAuthorityElevation>());
         ConfigureEvidence(
             modelBuilder.Entity<EvidenceRecord>(),
             modelBuilder.Entity<EvidenceVersion>(),
@@ -159,6 +176,93 @@ public sealed class DataLooMDbContext(
         builder.Property(workspace => workspace.CreatedBy).HasMaxLength(256).IsRequired();
         builder.Property(workspace => workspace.ConcurrencyToken).IsConcurrencyToken();
         builder.HasIndex(workspace => new { workspace.TenantId, workspace.Name }).IsUnique();
+    }
+
+    private void ConfigureIdentityAccess(
+        EntityTypeBuilder<ProductActor> actor,
+        EntityTypeBuilder<ProductTenantMembership> tenantMembership,
+        EntityTypeBuilder<ProductWorkspaceMembership> workspaceMembership,
+        EntityTypeBuilder<ProductPermissionAssignment> permissionAssignment,
+        EntityTypeBuilder<ProductAuthorityElevation> authorityElevation)
+    {
+        actor.ToTable("product_actors", "identity_access");
+        actor.HasKey(item => item.Id);
+        actor.Property(item => item.Subject).HasMaxLength(256).IsRequired();
+        actor.Property(item => item.DisplayName).HasMaxLength(256).IsRequired();
+        actor.Property(item => item.ActorType).HasMaxLength(64).HasDefaultValue(ProductActorTypes.Human).IsRequired();
+        actor.Property(item => item.State).HasMaxLength(64).IsRequired();
+        actor.Property(item => item.AuthorityVersion).HasDefaultValue(1L).IsRequired();
+        actor.Property(item => item.AuthorityChangedAt).HasDefaultValueSql("now()").IsRequired();
+        actor.Property(item => item.CreatedBy).HasMaxLength(256).IsRequired();
+        actor.Property(item => item.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(actor);
+        actor.HasIndex(item => new { item.TenantId, item.WorkspaceId, item.Subject }).IsUnique();
+        actor.HasIndex(item => new { item.TenantId, item.WorkspaceId, item.State });
+
+        tenantMembership.ToTable("product_tenant_memberships", "identity_access");
+        tenantMembership.HasKey(item => item.Id);
+        tenantMembership.Property(item => item.ActorSubject).HasMaxLength(256).IsRequired();
+        tenantMembership.Property(item => item.State).HasMaxLength(64).IsRequired();
+        tenantMembership.Property(item => item.AuthorityVersion).HasDefaultValue(1L).IsRequired();
+        tenantMembership.Property(item => item.GrantedBy).HasMaxLength(256).IsRequired();
+        tenantMembership.Property(item => item.RevokedBy).HasMaxLength(256);
+        tenantMembership.Property(item => item.IdempotencyKey).HasMaxLength(128).IsRequired();
+        tenantMembership.Property(item => item.RequestHash).HasMaxLength(64).IsRequired();
+        tenantMembership.Property(item => item.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureTenantScope(tenantMembership);
+        tenantMembership.HasIndex(item => new { item.TenantId, item.ActorSubject, item.State });
+        tenantMembership.HasIndex(item => new { item.TenantId, item.IdempotencyKey }).IsUnique();
+
+        workspaceMembership.ToTable("product_workspace_memberships", "identity_access");
+        workspaceMembership.HasKey(item => item.Id);
+        workspaceMembership.Property(item => item.ActorSubject).HasMaxLength(256).IsRequired();
+        workspaceMembership.Property(item => item.State).HasMaxLength(64).IsRequired();
+        workspaceMembership.Property(item => item.AuthorityVersion).HasDefaultValue(1L).IsRequired();
+        workspaceMembership.Property(item => item.GrantedBy).HasMaxLength(256).IsRequired();
+        workspaceMembership.Property(item => item.RevokedBy).HasMaxLength(256);
+        workspaceMembership.Property(item => item.IdempotencyKey).HasMaxLength(128).IsRequired();
+        workspaceMembership.Property(item => item.RequestHash).HasMaxLength(64).IsRequired();
+        workspaceMembership.Property(item => item.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(workspaceMembership);
+        workspaceMembership.HasIndex(item => new { item.TenantId, item.WorkspaceId, item.ActorSubject, item.State });
+        workspaceMembership.HasIndex(item => new { item.TenantId, item.WorkspaceId, item.IdempotencyKey }).IsUnique();
+
+        permissionAssignment.ToTable("product_permission_assignments", "identity_access");
+        permissionAssignment.HasKey(item => item.Id);
+        permissionAssignment.Property(item => item.ActorSubject).HasMaxLength(256).IsRequired();
+        permissionAssignment.Property(item => item.PermissionKey).HasMaxLength(128).IsRequired();
+        permissionAssignment.Property(item => item.ResourceType).HasMaxLength(128).IsRequired();
+        permissionAssignment.Property(item => item.ResourceId).HasMaxLength(128).IsRequired();
+        permissionAssignment.Property(item => item.State).HasMaxLength(64).IsRequired();
+        permissionAssignment.Property(item => item.AuthorityVersion).HasDefaultValue(1L).IsRequired();
+        permissionAssignment.Property(item => item.AssignedBy).HasMaxLength(256).IsRequired();
+        permissionAssignment.Property(item => item.RevokedBy).HasMaxLength(256);
+        permissionAssignment.Property(item => item.IdempotencyKey).HasMaxLength(128).IsRequired();
+        permissionAssignment.Property(item => item.RequestHash).HasMaxLength(64).IsRequired();
+        permissionAssignment.Property(item => item.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(permissionAssignment);
+        permissionAssignment.HasIndex(item => new { item.TenantId, item.WorkspaceId, item.ActorSubject, item.PermissionKey, item.ResourceType, item.ResourceId, item.State });
+        permissionAssignment.HasIndex(item => new { item.TenantId, item.WorkspaceId, item.IdempotencyKey }).IsUnique();
+
+        authorityElevation.ToTable("product_authority_elevations", "identity_access");
+        authorityElevation.HasKey(item => item.Id);
+        authorityElevation.Property(item => item.ActorSubject).HasMaxLength(256).IsRequired();
+        authorityElevation.Property(item => item.ElevationType).HasMaxLength(64).IsRequired();
+        authorityElevation.Property(item => item.RequestedCapability).HasMaxLength(128).IsRequired();
+        authorityElevation.Property(item => item.PermissionKey).HasMaxLength(128).IsRequired();
+        authorityElevation.Property(item => item.ResourceType).HasMaxLength(128).IsRequired();
+        authorityElevation.Property(item => item.ResourceId).HasMaxLength(128).IsRequired();
+        authorityElevation.Property(item => item.Reason).HasMaxLength(512).IsRequired();
+        authorityElevation.Property(item => item.State).HasMaxLength(64).IsRequired();
+        authorityElevation.Property(item => item.AuthorityVersion).HasDefaultValue(1L).IsRequired();
+        authorityElevation.Property(item => item.RequestedBy).HasMaxLength(256).IsRequired();
+        authorityElevation.Property(item => item.ApprovedBy).HasMaxLength(256);
+        authorityElevation.Property(item => item.RevokedBy).HasMaxLength(256);
+        authorityElevation.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        authorityElevation.Property(item => item.ConcurrencyToken).IsConcurrencyToken();
+        ConfigureWorkspaceScope(authorityElevation);
+        authorityElevation.HasIndex(item => new { item.TenantId, item.WorkspaceId, item.ActorSubject, item.PermissionKey, item.State });
+        authorityElevation.HasIndex(item => new { item.TenantId, item.WorkspaceId, item.ElevationType, item.State, item.ExpiresAt });
     }
 
     private void ConfigureEvidence(
@@ -289,7 +393,7 @@ public sealed class DataLooMDbContext(
         reviewerAssignment.ToTable("evidence_reviewer_assignments", "evidence");
         reviewerAssignment.HasKey(assignment => assignment.Id);
         reviewerAssignment.Property(assignment => assignment.ReviewerSubject).HasMaxLength(256).IsRequired();
-        reviewerAssignment.Property(assignment => assignment.Role).HasMaxLength(64).IsRequired();
+        reviewerAssignment.Property(assignment => assignment.PermissionKey).HasMaxLength(128).IsRequired();
         reviewerAssignment.Property(assignment => assignment.AssignedBy).HasMaxLength(256).IsRequired();
         reviewerAssignment.Property(assignment => assignment.RemovedBy).HasMaxLength(256);
         reviewerAssignment.Property(assignment => assignment.IdempotencyKey).HasMaxLength(128).IsRequired();
@@ -297,7 +401,7 @@ public sealed class DataLooMDbContext(
         reviewerAssignment.Property(assignment => assignment.ConcurrencyToken).IsConcurrencyToken();
         ConfigureWorkspaceScope(reviewerAssignment);
         reviewerAssignment.HasIndex(assignment => new { assignment.TenantId, assignment.WorkspaceId, assignment.ReviewRequestId, assignment.IdempotencyKey }).IsUnique();
-        reviewerAssignment.HasIndex(assignment => new { assignment.TenantId, assignment.WorkspaceId, assignment.ReviewRequestId, assignment.ReviewerSubject, assignment.Role, assignment.IsActive });
+        reviewerAssignment.HasIndex(assignment => new { assignment.TenantId, assignment.WorkspaceId, assignment.ReviewRequestId, assignment.ReviewerSubject, assignment.PermissionKey, assignment.IsActive });
 
         candidateDecision.ToTable("evidence_candidate_decisions", "evidence");
         candidateDecision.HasKey(candidate => candidate.Id);
