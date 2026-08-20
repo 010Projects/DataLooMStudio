@@ -47,3 +47,14 @@ public sealed record DeletionEligibilityResult(
     string LifecycleState,
     bool EvidencePhysicallyDeleted,
     bool IdempotentReplay);
+
+public sealed record EvidenceDisposalResult(
+    Guid DisposalRecordId,
+    EvidenceId EvidenceId,
+    Guid DeletionEligibilityEvaluationId,
+    string State,
+    string StorageDisposition,
+    bool EvidencePhysicallyDeleted,
+    int AttemptCount,
+    string? LastFailureReason,
+    bool IdempotentReplay);

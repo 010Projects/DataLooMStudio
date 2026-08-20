@@ -32,6 +32,16 @@ public static class ProductAuthorityPermissions
 
     public const string EvaluateDeletionEligibility = "Governance.Retention.DeletionEligibility.Evaluate";
 
+    public const string RequestEvidenceDisposal = "Evidence.Disposal.Request";
+
+    public const string ApproveEvidenceDisposal = "Evidence.Disposal.Approve";
+
+    public const string QueueEvidenceDisposal = "Evidence.Disposal.Queue";
+
+    public const string ExecuteEvidenceDisposal = "Workload.EvidenceDisposal.Execute";
+
+    public const string ReconcileEvidenceDisposal = "Workload.EvidenceDisposal.Reconcile";
+
     public const string ProcessOutbox = "Workload.Outbox.Process";
 
     public const string ScanEvidenceContent = "Workload.EvidenceContent.Scan";
@@ -55,6 +65,11 @@ public static class ProductAuthorityPermissions
             || permissionKey.Equals(RequestLegalHoldRelease, StringComparison.Ordinal)
             || permissionKey.Equals(ApproveLegalHoldRelease, StringComparison.Ordinal)
             || permissionKey.Equals(EvaluateDeletionEligibility, StringComparison.Ordinal)
+            || permissionKey.Equals(RequestEvidenceDisposal, StringComparison.Ordinal)
+            || permissionKey.Equals(ApproveEvidenceDisposal, StringComparison.Ordinal)
+            || permissionKey.Equals(QueueEvidenceDisposal, StringComparison.Ordinal)
+            || permissionKey.Equals(ExecuteEvidenceDisposal, StringComparison.Ordinal)
+            || permissionKey.Equals(ReconcileEvidenceDisposal, StringComparison.Ordinal)
             || permissionKey.Equals(ProcessOutbox, StringComparison.Ordinal)
             || permissionKey.Equals(ScanEvidenceContent, StringComparison.Ordinal)
             || permissionKey.Equals(ReconcileOutbox, StringComparison.Ordinal);
@@ -87,5 +102,14 @@ public static class ProductAuthorityPermissions
             || permissionKey.Equals(RequestLegalHoldRelease, StringComparison.Ordinal)
             || permissionKey.Equals(ApproveLegalHoldRelease, StringComparison.Ordinal)
             || permissionKey.Equals(EvaluateDeletionEligibility, StringComparison.Ordinal);
+    }
+
+    public static bool IsEvidenceDisposalPermission(string permissionKey)
+    {
+        return permissionKey.Equals(RequestEvidenceDisposal, StringComparison.Ordinal)
+            || permissionKey.Equals(ApproveEvidenceDisposal, StringComparison.Ordinal)
+            || permissionKey.Equals(QueueEvidenceDisposal, StringComparison.Ordinal)
+            || permissionKey.Equals(ExecuteEvidenceDisposal, StringComparison.Ordinal)
+            || permissionKey.Equals(ReconcileEvidenceDisposal, StringComparison.Ordinal);
     }
 }

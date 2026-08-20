@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Xml.Linq;
 
 using DataLooMStudio.Infrastructure.DependencyInjection;
+using DataLooMStudio.Infrastructure.Storage;
 using DataLooMStudio.Modules.AiGovernance;
 using DataLooMStudio.Modules.Evidence;
 using DataLooMStudio.Modules.IdentityAccess;
@@ -500,8 +501,12 @@ public sealed class FoundationArchitectureTests
 
             Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsEvidenceContentPermission);
             Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsEvidenceReviewOrDecisionPermission);
+            Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsEvidenceDisposalPermission);
             Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsRetentionOrLegalHoldPermission);
         }
+
+        Assert.All(ProductAuthorityRoleTaxonomy.Roles, role =>
+            Assert.DoesNotContain(role.PermissionBundle, ProductAuthorityPermissions.IsEvidenceDisposalPermission));
     }
 
     [Fact]
@@ -563,6 +568,92 @@ public sealed class FoundationArchitectureTests
         Assert.DoesNotContain("DeletionEligibilityPolicy", apiSource, StringComparison.Ordinal);
         Assert.DoesNotContain("DeletionEligibilityPolicy", webSource, StringComparison.Ordinal);
         Assert.DoesNotContain("ProductAuthorityPermissions", webSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Evidence_disposal_control_plane_must_keep_destructive_execution_disabled_and_off_api()
+    {
+        var storageRoot = Path.Combine(RepositoryRoot, "src", "BuildingBlocks", "DataLooMStudio.Infrastructure", "Storage");
+        var disposalBoundary = Path.Combine(storageRoot, "IEvidenceDisposalObjectStore.cs");
+        var disabledDisposalStore = Path.Combine(storageRoot, "DisabledEvidenceDisposalObjectStore.cs");
+        var infrastructureRegistration = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "BuildingBlocks",
+            "DataLooMStudio.Infrastructure",
+            "DependencyInjection",
+            "DataLooMInfrastructureServiceCollectionExtensions.cs");
+        var retentionRuntimeSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Runtime", "DataLooMStudio.Runtime.Persistence", "Retention")).Select(File.ReadAllText));
+        var apiSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Api")).Select(File.ReadAllText));
+        var aiSource = string.Join(
+            Environment.NewLine,
+            GetSourceFiles(Path.Combine(RepositoryRoot, "src", "Modules", "AiGovernance")).Select(File.ReadAllText));
+        var disposalStorageFiles = GetSourceFiles(storageRoot)
+            .Where(file => Path.GetFileName(file).Contains("Disposal", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var forbiddenDisposalStorageTokens = new[]
+        {
+            "BlobClient",
+            "BlobServiceClient",
+            "BlobSasBuilder",
+            "DefaultAzureCredential",
+            "TokenCredential",
+            "DeleteIfExistsAsync",
+            "DeleteAsync("
+        };
+        var disposalStorageViolations = disposalStorageFiles
+            .Select(file => new
+            {
+                File = file,
+                Tokens = forbiddenDisposalStorageTokens
+                    .Where(token => File.ReadAllText(file).Contains(token, StringComparison.Ordinal))
+                    .ToArray()
+            })
+            .Where(result => result.Tokens.Length > 0)
+            .Select(result => $"{RelativeToRepository(result.File)} contains {string.Join(", ", result.Tokens)}")
+            .ToArray();
+        var disabledSource = File.ReadAllText(disabledDisposalStore);
+        var registrationSource = File.ReadAllText(infrastructureRegistration);
+
+        Assert.True(File.Exists(disposalBoundary), RelativeToRepository(disposalBoundary));
+        Assert.True(File.Exists(disabledDisposalStore), RelativeToRepository(disabledDisposalStore));
+        Assert.True(typeof(IEvidenceDisposalObjectStore).IsAssignableFrom(typeof(DisabledEvidenceDisposalObjectStore)));
+        Assert.Contains("TryAddSingleton<IEvidenceDisposalObjectStore, DisabledEvidenceDisposalObjectStore>", registrationSource, StringComparison.Ordinal);
+        Assert.Contains("EvidenceDisposalObjectOutcomes.Suspended", disabledSource, StringComparison.Ordinal);
+        Assert.Contains("EvidencePhysicallyDeleted: false", disabledSource, StringComparison.Ordinal);
+        Assert.Empty(disposalStorageViolations);
+        Assert.Contains("IEvidenceDisposalObjectStore", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.Contains("ExecuteEvidenceDisposalAsync", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.Contains("ProductAuthorityPermissions.ExecuteEvidenceDisposal", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.Contains("ProductActorTypes.Workload", retentionRuntimeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExecuteEvidenceDisposalAsync", apiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("/execute", apiSource, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("EvidenceDisposal", aiSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProductAuthorityPermissions", aiSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Evidence_disposal_workload_identity_must_be_execute_reconcile_only()
+    {
+        var profile = ProductWorkloadIdentityMatrix.Find("evidence-disposal");
+
+        Assert.NotNull(profile);
+        Assert.Equal("workload:evidence-disposal", profile.ActorSubject);
+        Assert.False(profile.MayImpersonateHumanApprover);
+        Assert.Contains(ProductAuthorityPermissions.ExecuteEvidenceDisposal, profile.AllowedPermissions);
+        Assert.Contains(ProductAuthorityPermissions.ReconcileEvidenceDisposal, profile.AllowedPermissions);
+        Assert.DoesNotContain(ProductAuthorityPermissions.RequestEvidenceDisposal, profile.AllowedPermissions);
+        Assert.DoesNotContain(ProductAuthorityPermissions.ApproveEvidenceDisposal, profile.AllowedPermissions);
+        Assert.DoesNotContain(ProductAuthorityPermissions.QueueEvidenceDisposal, profile.AllowedPermissions);
+        Assert.Contains(ProductAuthorityPermissions.RequestEvidenceDisposal, profile.ProhibitedPermissions);
+        Assert.Contains(ProductAuthorityPermissions.ApproveEvidenceDisposal, profile.ProhibitedPermissions);
+        Assert.Contains(ProductAuthorityPermissions.QueueEvidenceDisposal, profile.ProhibitedPermissions);
+        Assert.Contains(ProductAuthorityPermissions.ReadEvidence, profile.ProhibitedPermissions);
+        Assert.Contains(ProductAuthorityPermissions.ActivateBreakGlass, profile.ProhibitedPermissions);
     }
 
     [Fact]
@@ -1035,6 +1126,35 @@ public sealed class FoundationArchitectureTests
             .ToArray();
 
         Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Evidence_disposal_migration_must_isolate_retention_records_and_authority_constraints()
+    {
+        var migration = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Runtime",
+            "DataLooMStudio.Runtime.Persistence",
+            "Migrations",
+            "20260817172615_EvidenceDisposalControlPlane.cs");
+        var source = File.ReadAllText(migration);
+
+        Assert.Contains("retention.disposal_records", source, StringComparison.Ordinal);
+        Assert.Contains("alter table retention.disposal_records enable row level security", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("alter table retention.disposal_records force row level security", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tenant_workspace_context_isolation", source, StringComparison.Ordinal);
+        Assert.Contains("CK_disposal_records_no_physical_deletion_claim", source, StringComparison.Ordinal);
+        Assert.Contains("\"EvidencePhysicallyDeleted\" = false", source, StringComparison.Ordinal);
+        Assert.Contains("Evidence.Disposal.Request", source, StringComparison.Ordinal);
+        Assert.Contains("Evidence.Disposal.Approve", source, StringComparison.Ordinal);
+        Assert.Contains("Evidence.Disposal.Queue", source, StringComparison.Ordinal);
+        Assert.Contains("Workload.EvidenceDisposal.Execute", source, StringComparison.Ordinal);
+        Assert.Contains("Workload.EvidenceDisposal.Reconcile", source, StringComparison.Ordinal);
+        Assert.Contains("'EvidenceDisposal'", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("drop table evidence.", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("delete from evidence.", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("truncate table evidence.", source, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

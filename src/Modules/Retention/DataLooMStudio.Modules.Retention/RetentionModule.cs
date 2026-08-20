@@ -12,6 +12,6 @@ public sealed class RetentionModule : IDataLooMModule
         RequiresWorkspaceContext: true,
         OwnsTransactionalOutbox: true,
         ContainsAiExecution: false,
-        ["Retention policies", "Legal holds", "Deletion eligibility decisions"],
+        ["Retention policies", "Legal holds", "Deletion eligibility decisions", "Governed disposal decisions"],
         ["Tenancy", "Workspaces", "Evidence"]);
 }

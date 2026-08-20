@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using DataLooMStudio.Infrastructure.Outbox;
+using DataLooMStudio.Infrastructure.Storage;
 using DataLooMStudio.Modules.Audit;
 using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Lineage;
@@ -25,13 +26,14 @@ using RetentionPolicy = DataLooMStudio.Modules.Retention.RetentionPolicy;
 
 namespace DataLooMStudio.Runtime.Persistence.Retention;
 
-public sealed class RetentionGovernanceService(
+public sealed partial class RetentionGovernanceService(
     DataLooMDbContext dbContext,
     IRequestContextAccessor requestContextAccessor,
     IClock clock,
     IProductAuthorityService productAuthorityService,
     IOutboxWriter outboxWriter,
-    PostgresRlsSessionContext rlsSessionContext) : IRetentionGovernanceService
+    PostgresRlsSessionContext rlsSessionContext,
+    IEvidenceDisposalObjectStore disposalObjectStore) : IRetentionGovernanceService
 {
     private static readonly Regex PolicyKeyRegex = new("^[A-Za-z0-9._:-]{3,128}$", RegexOptions.Compiled);
 
