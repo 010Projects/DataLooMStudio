@@ -31,6 +31,7 @@ public static class DataLooMInfrastructureServiceCollectionExtensions
 
         services.TryAddSingleton<IOutboxPublisher, ServiceBusOutboxPublisher>();
         services.TryAddSingleton<IEvidenceObjectStore, AzureEvidenceObjectStore>();
+        services.TryAddSingleton<IEvidenceDisposalObjectStore, DisabledEvidenceDisposalObjectStore>();
         services.TryAddSingleton<IEvidenceMalwareScanner, UnavailableEvidenceMalwareScanner>();
         services.TryAddSingleton<ISecretResolver, KeyVaultSecretResolver>();
 

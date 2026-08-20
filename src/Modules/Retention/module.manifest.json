@@ -9,7 +9,8 @@
   "responsibilities": [
     "Retention policies",
     "Legal holds",
-    "Deletion eligibility decisions"
+    "Deletion eligibility decisions",
+    "Governed disposal decisions"
   ],
   "dependsOn": [
     "Tenancy",

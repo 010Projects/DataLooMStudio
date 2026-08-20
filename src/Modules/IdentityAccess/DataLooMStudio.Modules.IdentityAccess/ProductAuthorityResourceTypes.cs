@@ -10,6 +10,8 @@ public static class ProductAuthorityResourceTypes
 
     public const string EvidenceLineage = "EvidenceLineage";
 
+    public const string EvidenceDisposal = "EvidenceDisposal";
+
     public const string Workflow = "Workflow";
 
     public const string SupportDiagnostics = "SupportDiagnostics";

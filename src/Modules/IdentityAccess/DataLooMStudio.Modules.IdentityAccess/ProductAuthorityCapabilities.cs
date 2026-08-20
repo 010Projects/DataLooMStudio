@@ -14,5 +14,7 @@ public static class ProductAuthorityCapabilities
 
     public const string GovernanceLegalHold = "GovernanceLegalHold";
 
+    public const string EvidenceDisposal = "EvidenceDisposal";
+
     public const string WorkloadProcessing = "WorkloadProcessing";
 }

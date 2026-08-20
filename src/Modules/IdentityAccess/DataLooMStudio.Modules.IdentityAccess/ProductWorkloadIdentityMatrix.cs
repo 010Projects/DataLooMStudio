@@ -66,6 +66,26 @@ public static class ProductWorkloadIdentityMatrix
             false,
             "reconciliation"),
         new(
+            "evidence-disposal",
+            "workload:evidence-disposal",
+            "Non-production governed Evidence disposal worker with no human approval authority.",
+            [
+                ProductAuthorityPermissions.ExecuteEvidenceDisposal,
+                ProductAuthorityPermissions.ReconcileEvidenceDisposal
+            ],
+            [
+                ProductAuthorityPermissions.RequestEvidenceDisposal,
+                ProductAuthorityPermissions.ApproveEvidenceDisposal,
+                ProductAuthorityPermissions.QueueEvidenceDisposal,
+                ProductAuthorityPermissions.ApplyEvidenceDecision,
+                ProductAuthorityPermissions.CreateEvidenceCandidateDecision,
+                ProductAuthorityPermissions.ManageEvidenceReviewAssignments,
+                ProductAuthorityPermissions.ReadEvidence,
+                ProductAuthorityPermissions.ActivateBreakGlass
+            ],
+            false,
+            "evidence-disposal"),
+        new(
             "support-tooling",
             "workload:support-tooling",
             "Support tooling boundary without unrestricted Evidence access.",

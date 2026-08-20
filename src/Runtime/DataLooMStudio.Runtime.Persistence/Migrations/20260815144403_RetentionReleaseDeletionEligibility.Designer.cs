@@ -3,6 +3,7 @@ using System;
 using DataLooMStudio.Runtime.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DataLooMStudio.Runtime.Persistence.Migrations
 {
     [DbContext(typeof(DataLooMDbContext))]
-    partial class DataLooMDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260815144403_RetentionReleaseDeletionEligibility")]
+    partial class RetentionReleaseDeletionEligibility
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1486,225 +1489,6 @@ namespace DataLooMStudio.Runtime.Persistence.Migrations
                     b.HasIndex("TenantId", "WorkspaceId", "EvidenceId", "EvaluatedAt");
 
                     b.ToTable("deletion_eligibility_evaluations", "retention");
-                });
-
-            modelBuilder.Entity("DataLooMStudio.Modules.Retention.DisposalRecord", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<long?>("ApprovalAuthorityVersion")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ApprovalIdempotencyKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("ApprovalPolicyIdentifier")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<int?>("ApprovalPolicyVersion")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ApprovalReason")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("ApprovalRequestHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset?>("ApprovedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ApprovedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("ConcurrencyToken")
-                        .IsConcurrencyToken()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("DeletionEligibilityEvaluationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("EvidenceId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("EvidencePhysicallyDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("ExecutedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<long?>("ExecutionAuthorityVersion")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ExecutionIdempotencyKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("ExecutionPolicyIdentifier")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<int?>("ExecutionPolicyVersion")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ExecutionRequestHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset?>("ExecutionStartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ExpectedSha256Hash")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTimeOffset?>("LastAttemptAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LastFailureReason")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<string>("LifecycleState")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("QueueIdempotencyKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("QueueRequestHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset?>("QueuedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("QueuedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTimeOffset?>("ReconciledAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ReconciledBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("ReconciliationIdempotencyKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("ReconciliationRequestHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<long>("RequestAuthorityVersion")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("RequestHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("RequestPolicyIdentifier")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<int>("RequestPolicyVersion")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("RequestReason")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<DateTimeOffset>("RequestedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RequestedBy")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTimeOffset?>("RetentionExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RetentionPolicyKey")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset?>("StorageDisposedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("StorageDisposition")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("StorageObjectReference")
-                        .IsRequired()
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("WorkspaceId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "WorkspaceId");
-
-                    b.HasIndex("TenantId", "WorkspaceId", "ApprovalIdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "WorkspaceId", "ExecutionIdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "WorkspaceId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "WorkspaceId", "QueueIdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "WorkspaceId", "ReconciliationIdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "WorkspaceId", "EvidenceId", "State");
-
-                    b.HasIndex("TenantId", "WorkspaceId", "State", "QueuedAt");
-
-                    b.ToTable("disposal_records", "retention");
                 });
 
             modelBuilder.Entity("DataLooMStudio.Modules.Retention.LegalHold", b =>

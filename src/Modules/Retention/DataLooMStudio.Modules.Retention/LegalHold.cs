@@ -24,6 +24,8 @@ public sealed class LegalHold : IWorkspaceScoped
 
     public string? ReleasedBy { get; set; }
 
+    public string? ReleaseReason { get; set; }
+
     public string IdempotencyKey { get; init; } = string.Empty;
 
     public string RequestHash { get; init; } = string.Empty;
