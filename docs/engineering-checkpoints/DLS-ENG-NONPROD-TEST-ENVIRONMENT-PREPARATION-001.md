@@ -8,15 +8,21 @@
 
 **Repository:** `010Projects/DataLooMStudio`
 
-**Decision:** `IMPLEMENTED - HOSTED VALIDATION PENDING`
+**Decision:** `PREPARATION COMPLETE - READY FOR SECURITY ASSESSMENT`
 
 **Azure Test deployment:** `NOT PERFORMED / NOT AUTHORIZED`
+
+**Pull request:** `#8`
+
+**Validated implementation head:** `c30cd2ccd461ea8e49608c7fcce177c85453551a`
+
+**Hosted CI:** `33276010630 - SUCCESS`
 
 ## 1. Engineering Decision
 
 The bounded repository preparation is implemented. The resulting baseline models a hardened `Test` environment without mislabelling it as `Production`, separates database and workload identities, gates application rollout on an explicitly successful migration execution, uses immutable deployment image references, integrates non-production Entra authentication, provides an executable bounded Evidence journey, keeps malware scanning fail closed, activates only approved outbox work in the worker, and supplies deployable observability and operator validation contracts.
 
-This decision is authority to submit the repository baseline to hosted CI and Security assessment. It is not Test deployment authority. Real identity resources, scanner resources, image signatures, Azure infrastructure, restore operations, and deployed end-to-end validation remain activation work requiring explicit authority.
+This decision is authority to return the repository baseline for Security assessment. It is not Test deployment authority. Real identity resources, scanner resources, image signatures, Azure infrastructure, restore operations, and deployed end-to-end validation remain activation work requiring explicit authority.
 
 ## 2. Environment Validation Model
 
@@ -126,9 +132,28 @@ The operator runbook provides the required 18-step sequence: prerequisites, iden
 | Idempotent migration artifact | PASS - 128,718 bytes |
 | Local PostgreSQL integration | NOT RUN - Docker Desktop Linux engine unavailable |
 | Local container build/Trivy | NOT RUN - Docker Desktop Linux engine unavailable |
-| Hosted full solution/PostgreSQL/container/Trivy | PENDING latest-head PR CI |
+| Hosted Architecture tests | PASS - 55/55 |
+| Hosted API/config/scanner tests | PASS - 14/14 |
+| Hosted Persistence tests | PASS - 115/115 |
+| Hosted Worker tests | PASS - 2/2 |
+| Hosted four-container builds | PASS |
+| Hosted API/worker/migration/web Trivy | PASS - blocking HIGH/CRITICAL fixed-vulnerability policy |
+| Hosted supply-chain evidence and artifact upload | PASS |
 
 The hosted workflow retains the full existing build, persistence, architecture, API, formatting, dependency, secret, Bicep, four-container, four-Trivy, supply-chain, and artifact gates. It adds frontend auth/workflow tests and Test environment/harness contract validation without weakening a security gate.
+
+### Repository-governed evidence
+
+- Pull request: `#8` - `https://github.com/010Projects/DataLooMStudio/pull/8`
+- Initial implementation commit: `5ce76d0b7b28015e87f5456565a16b556bd93943`
+- Hosted test-isolation remediation: `69d545294d8dcd56e4e110be3675e73ead6f240e`
+- Stale-lease fail-safe remediation and validated implementation head: `c30cd2ccd461ea8e49608c7fcce177c85453551a`
+- Successful workflow run: `33276010630`
+- Successful job: `99162748787`
+- Validation artifact: `production-hardening-validation`, artifact ID `9721564560`, 19,206 bytes
+- Workflow duration: `2026-08-29T21:24:52Z` to `2026-08-29T21:29:42Z`
+
+The first hosted run identified a test-order dependency in the new global outbox test. The synthetic message was made deterministically oldest without changing runtime queue behavior. The second run then exposed that a stale-lease PostgreSQL function result is SQL `NULL`; the runtime adapter now maps that no-row result to `false`, preserving fail-safe stale/substituted lease denial. The third run passed every gate.
 
 ## 14. Complete Changed-File Register
 
