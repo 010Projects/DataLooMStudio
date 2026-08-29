@@ -13,4 +13,12 @@ public sealed class DataLooMInfrastructureOptions
     public string ServiceBusOutboxTopic { get; init; } = "dataloomstudio-outbox";
 
     public string? KeyVaultUri { get; init; }
+
+    public string? EnvironmentName { get; init; }
+
+    public string? EnvironmentKind { get; init; }
+
+    public string? AllowedOriginsCsv { get; init; }
+
+    public string? WorkerIdentitySubject { get; init; }
 }

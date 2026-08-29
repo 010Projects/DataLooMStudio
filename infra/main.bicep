@@ -27,6 +27,9 @@ param apiContainerImage string
 @description('Container image for the React web application. Image publication authority is outside this checkpoint.')
 param webContainerImage string
 
+@description('Container image for the non-destructive background worker. Image publication authority is outside this checkpoint.')
+param workerContainerImage string
+
 @description('PostgreSQL administrator login used only for initial server bootstrap.')
 param postgresAdministratorLogin string
 
@@ -40,18 +43,40 @@ param entraAdministratorPrincipalName string = ''
 @description('Optional Microsoft Entra administrator object id for PostgreSQL.')
 param entraAdministratorObjectId string = ''
 
+@description('Microsoft Entra authority used by API token validation. Required by production startup validation.')
+param entraAuthority string = ''
+
+@description('Microsoft Entra client/application id used by API token validation. Required by production startup validation when audience is not supplied.')
+param entraClientId string = ''
+
+@description('Microsoft Entra audience used by API token validation. Required by production startup validation when client id is not supplied.')
+param entraAudience string = ''
+
+@description('Externally governed host names for production API host filtering.')
+param allowedHosts string = '*'
+
+@description('Semicolon-delimited externally governed browser origins for production CORS.')
+param allowedOriginsCsv string = ''
+
+@description('OpenTelemetry collector endpoint. Required by production startup validation.')
+param otelExporterOtlpEndpoint string = ''
+
 var normalized = toLower(replace(environmentName, '-', ''))
 var suffix = uniqueString(resourceGroup().id, environmentName)
 var apiName = '${environmentName}-api'
 var webName = '${environmentName}-web'
+var workerName = '${environmentName}-worker'
 var storageName = take('${normalized}${suffix}', 24)
 var keyVaultName = take('${environmentName}-kv-${suffix}', 24)
 var serviceBusName = take('${environmentName}-sb-${suffix}', 50)
 var postgresName = take('${environmentName}-pg-${suffix}', 63)
-var identityName = '${environmentName}-app-mi'
+var apiIdentityName = '${environmentName}-api-mi'
+var workerIdentityName = '${environmentName}-worker-mi'
 var databaseName = 'dataloomstudio'
 var outboxTopicName = 'dataloomstudio-outbox'
 var evidenceContainerName = 'evidence'
+var aspNetCoreEnvironment = environment == 'prod' ? 'Production' : 'Development'
+var workerIdentitySubject = 'workload:dls-worker'
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   name: '${environmentName}-vnet'
@@ -136,8 +161,14 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
-resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: identityName
+resource apiManagedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: apiIdentityName
+  location: location
+  tags: tags
+}
+
+resource workerManagedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: workerIdentityName
   location: location
   tags: tags
 }
@@ -321,7 +352,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${managedIdentity.id}': {}
+      '${apiManagedIdentity.id}': {}
     }
   }
   properties: {
@@ -347,8 +378,40 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
           image: apiContainerImage
           env: [
             {
+              name: 'ASPNETCORE_ENVIRONMENT'
+              value: aspNetCoreEnvironment
+            }
+            {
+              name: 'AllowedHosts'
+              value: allowedHosts
+            }
+            {
               name: 'ConnectionStrings__DataLooM'
               secretRef: 'postgres-connection'
+            }
+            {
+              name: 'DataLooM__EnvironmentName'
+              value: environmentName
+            }
+            {
+              name: 'DataLooM__EnvironmentKind'
+              value: environment
+            }
+            {
+              name: 'DataLooM__AllowedOriginsCsv'
+              value: allowedOriginsCsv
+            }
+            {
+              name: 'EntraId__Authority'
+              value: entraAuthority
+            }
+            {
+              name: 'EntraId__ClientId'
+              value: entraClientId
+            }
+            {
+              name: 'EntraId__Audience'
+              value: entraAudience
             }
             {
               name: 'DataLooM__BlobServiceUri'
@@ -370,6 +433,36 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'DataLooM__KeyVaultUri'
               value: keyVault.properties.vaultUri
             }
+            {
+              name: 'OTEL_EXPORTER_OTLP_ENDPOINT'
+              value: otelExporterOtlpEndpoint
+            }
+          ]
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/healthz'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 30
+              periodSeconds: 30
+              timeoutSeconds: 5
+              failureThreshold: 3
+            }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/readyz'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 15
+              periodSeconds: 15
+              timeoutSeconds: 5
+              failureThreshold: 3
+            }
           ]
           resources: {
             cpu: json('0.5')
@@ -385,16 +478,96 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-resource webApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: webName
+resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
+  name: workerName
   location: location
   tags: tags
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${managedIdentity.id}': {}
+      '${workerManagedIdentity.id}': {}
     }
   }
+  properties: {
+    managedEnvironmentId: containerEnvironment.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      secrets: [
+        {
+          name: 'postgres-connection'
+          value: postgresConnectionString
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'worker'
+          image: workerContainerImage
+          env: [
+            {
+              name: 'DOTNET_ENVIRONMENT'
+              value: aspNetCoreEnvironment
+            }
+            {
+              name: 'ConnectionStrings__DataLooM'
+              secretRef: 'postgres-connection'
+            }
+            {
+              name: 'DataLooM__EnvironmentName'
+              value: environmentName
+            }
+            {
+              name: 'DataLooM__EnvironmentKind'
+              value: environment
+            }
+            {
+              name: 'DataLooM__BlobServiceUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
+            }
+            {
+              name: 'DataLooM__EvidenceContainerName'
+              value: evidenceContainer.name
+            }
+            {
+              name: 'DataLooM__ServiceBusFullyQualifiedNamespace'
+              value: '${serviceBus.name}.servicebus.windows.net'
+            }
+            {
+              name: 'DataLooM__ServiceBusOutboxTopic'
+              value: outboxTopic.name
+            }
+            {
+              name: 'DataLooM__KeyVaultUri'
+              value: keyVault.properties.vaultUri
+            }
+            {
+              name: 'DataLooM__WorkerIdentitySubject'
+              value: workerIdentitySubject
+            }
+            {
+              name: 'OTEL_EXPORTER_OTLP_ENDPOINT'
+              value: otelExporterOtlpEndpoint
+            }
+          ]
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+        }
+      ]
+      scale: {
+        minReplicas: environment == 'prod' ? 1 : 0
+        maxReplicas: 5
+      }
+    }
+  }
+}
+
+resource webApp 'Microsoft.App/containerApps@2024-03-01' = {
+  name: webName
+  location: location
+  tags: tags
   properties: {
     managedEnvironmentId: containerEnvironment.id
     configuration: {
@@ -414,6 +587,20 @@ resource webApp 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 30
+              periodSeconds: 30
+              timeoutSeconds: 5
+              failureThreshold: 3
+            }
+          ]
         }
       ]
       scale: {
@@ -424,31 +611,71 @@ resource webApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-resource storageBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storage.id, managedIdentity.id, 'storage-blob-data-contributor')
+resource apiStorageBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, apiManagedIdentity.id, 'storage-blob-data-contributor')
   scope: storage
   properties: {
-    principalId: managedIdentity.properties.principalId
+    principalId: apiManagedIdentity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
   }
 }
 
-resource serviceBusSender 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(serviceBus.id, managedIdentity.id, 'service-bus-data-sender')
+resource workerStorageBlobReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, workerManagedIdentity.id, 'storage-blob-data-reader')
+  scope: storage
+  properties: {
+    principalId: workerManagedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1')
+  }
+}
+
+resource apiServiceBusSender 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(serviceBus.id, apiManagedIdentity.id, 'service-bus-data-sender')
   scope: serviceBus
   properties: {
-    principalId: managedIdentity.properties.principalId
+    principalId: apiManagedIdentity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39')
   }
 }
 
-resource keyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, managedIdentity.id, 'key-vault-secrets-user')
+resource workerServiceBusSender 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(serviceBus.id, workerManagedIdentity.id, 'service-bus-data-sender')
+  scope: serviceBus
+  properties: {
+    principalId: workerManagedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39')
+  }
+}
+
+resource workerServiceBusReceiver 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(serviceBus.id, workerManagedIdentity.id, 'service-bus-data-receiver')
+  scope: serviceBus
+  properties: {
+    principalId: workerManagedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0')
+  }
+}
+
+resource apiKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, apiManagedIdentity.id, 'key-vault-secrets-user')
   scope: keyVault
   properties: {
-    principalId: managedIdentity.properties.principalId
+    principalId: apiManagedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+  }
+}
+
+resource workerKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, workerManagedIdentity.id, 'key-vault-secrets-user')
+  scope: keyVault
+  properties: {
+    principalId: workerManagedIdentity.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
   }
@@ -456,6 +683,7 @@ resource keyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01
 
 output apiUrl string = 'https://${apiApp.properties.configuration.ingress.fqdn}'
 output webUrl string = 'https://${webApp.properties.configuration.ingress.fqdn}'
+output workerContainerAppName string = workerApp.name
 output postgresServerName string = postgres.name
 output serviceBusNamespace string = serviceBus.name
 output storageAccountName string = storage.name

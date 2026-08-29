@@ -3,16 +3,14 @@ WORKDIR /src
 
 COPY . .
 RUN dotnet restore DataLooMStudio.slnx
-RUN dotnet publish src/Api/DataLooMStudio.Api/DataLooMStudio.Api.csproj \
+RUN dotnet publish src/Dls.Migrate/DataLooMStudio.Dls.Migrate/DataLooMStudio.Dls.Migrate.csproj \
     --configuration Release \
     --no-restore \
     --output /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
 WORKDIR /app
-ENV ASPNETCORE_URLS=http://+:8080
-EXPOSE 8080
 USER $APP_UID
 
 COPY --from=build /app/publish .
-ENTRYPOINT ["dotnet", "DataLooMStudio.Api.dll"]
+ENTRYPOINT ["dotnet", "DataLooMStudio.Dls.Migrate.dll"]

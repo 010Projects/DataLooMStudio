@@ -40,6 +40,8 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        await EnsureDockerLinuxEngineAvailableAsync();
+
         await RunDockerAsync(
             "run",
             "--rm",
@@ -143,6 +145,21 @@ public sealed class PostgresFixture : IAsyncLifetime
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    private static async Task EnsureDockerLinuxEngineAvailableAsync()
+    {
+        try
+        {
+            await RunDockerAsync("info");
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException(
+                "Persistence tests require a working Docker Linux engine to start the PostgreSQL 18 test container. " +
+                "Start Docker Desktop with the Linux engine, or use GitHub-hosted CI as the authoritative integration-test environment.",
+                exception);
+        }
     }
 
     private static async Task RunDockerAsync(params string[] arguments)
