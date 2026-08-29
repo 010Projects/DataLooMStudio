@@ -93,41 +93,59 @@ jobs:
       - name: Build web container
         run: docker build --file src/Web/DataLooMStudio.Web/Dockerfile --tag dataloomstudio-web:ci src/Web/DataLooMStudio.Web
 
-      - name: Scan API container
-        uses: aquasecurity/trivy-action@v0.32.0
+      # v0.3.1 installs the reviewed v0.72.0 release once for all image scans.
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
+          version: v0.72.0
+          cache: true
+
+      - name: Verify Trivy installation
+        run: trivy --version
+
+      - name: Scan API container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: image
           image-ref: dataloomstudio-api:ci
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+          skip-setup-trivy: true
 
       - name: Scan worker container
-        uses: aquasecurity/trivy-action@v0.32.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
+          scan-type: image
           image-ref: dataloomstudio-worker:ci
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+          skip-setup-trivy: true
 
       - name: Scan migration container
-        uses: aquasecurity/trivy-action@v0.32.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
+          scan-type: image
           image-ref: dataloomstudio-migrate:ci
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+          skip-setup-trivy: true
 
       - name: Scan web container
-        uses: aquasecurity/trivy-action@v0.32.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
+          scan-type: image
           image-ref: dataloomstudio-web:ci
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+          skip-setup-trivy: true
 
       - name: Generate supply-chain evidence
         run: |
@@ -135,6 +153,7 @@ jobs:
           dotnet list DataLooMStudio.slnx package --include-transitive > artifacts/sbom/dotnet-packages.txt
           npm --prefix src/Web/DataLooMStudio.Web ls --all --json > artifacts/sbom/npm-dependencies.json
           docker image inspect dataloomstudio-api:ci dataloomstudio-worker:ci dataloomstudio-migrate:ci dataloomstudio-web:ci > artifacts/sbom/container-images.json
+          trivy --version > artifacts/sbom/trivy-version.txt
 
       - name: Upload validation artifacts
         uses: actions/upload-artifact@v4

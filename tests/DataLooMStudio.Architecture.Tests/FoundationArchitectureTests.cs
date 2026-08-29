@@ -1323,7 +1323,24 @@ public sealed class FoundationArchitectureTests
         Assert.Contains("docker build --file src/Dls.Worker/DataLooMStudio.Dls.Worker/Dockerfile", workflow, StringComparison.Ordinal);
         Assert.Contains("docker build --file src/Dls.Migrate/DataLooMStudio.Dls.Migrate/Dockerfile", workflow, StringComparison.Ordinal);
         Assert.Contains("docker build --file src/Web/DataLooMStudio.Web/Dockerfile", workflow, StringComparison.Ordinal);
-        Assert.Contains("aquasecurity/trivy-action", workflow, StringComparison.Ordinal);
+        Assert.Contains(
+            "aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains("version: v0.72.0", workflow, StringComparison.Ordinal);
+        Assert.Equal(
+            4,
+            workflow.Split(
+                "aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, workflow.Split("skip-setup-trivy: true", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, workflow.Split("severity: HIGH,CRITICAL", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, workflow.Split("ignore-unfixed: true", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, workflow.Split("exit-code: '1'", StringSplitOptions.None).Length - 1);
+        Assert.Contains("image-ref: dataloomstudio-api:ci", workflow, StringComparison.Ordinal);
+        Assert.Contains("image-ref: dataloomstudio-worker:ci", workflow, StringComparison.Ordinal);
+        Assert.Contains("image-ref: dataloomstudio-migrate:ci", workflow, StringComparison.Ordinal);
+        Assert.Contains("image-ref: dataloomstudio-web:ci", workflow, StringComparison.Ordinal);
         Assert.Contains("artifacts/sbom", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/upload-artifact", workflow, StringComparison.Ordinal);
     }
