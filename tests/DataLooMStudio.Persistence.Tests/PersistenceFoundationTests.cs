@@ -71,8 +71,8 @@ public sealed class PersistenceFoundationTests(PostgresFixture fixture) : IClass
             MessageType = "SyntheticScopePreservation",
             PayloadJson = "{\"synthetic\":true}",
             CorrelationId = $"corr-{Guid.NewGuid():N}",
-            OccurredAt = DateTimeOffset.UtcNow,
-            AvailableAt = DateTimeOffset.UtcNow
+            OccurredAt = DateTimeOffset.UnixEpoch,
+            AvailableAt = DateTimeOffset.UnixEpoch
         };
         await using (var dbContext = fixture.CreateDbContext(CreateRequestContext(tenantId, workspaceId)))
         {

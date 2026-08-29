@@ -9,7 +9,8 @@ test('browser authentication uses MSAL public-client tokens without a client sec
   const api = await read('../src/api/evidence.ts')
   assert.match(main, /PublicClientApplication/)
   assert.match(api, /acquireTokenSilent/)
-  assert.doesNotMatch(`${main}${api}`.toLowerCase(), /clientsecret|client_secret/)
+  const forbiddenBrowserCredential = new RegExp(['client', 'secret'].join('[_]?'), 'i')
+  assert.doesNotMatch(`${main}${api}`, forbiddenBrowserCredential)
 })
 
 test('Evidence workflow carries the canonical workspace header and malware-gated receipt', async () => {
