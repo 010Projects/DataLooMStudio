@@ -1303,7 +1303,10 @@ public sealed class FoundationArchitectureTests
         Assert.Contains("USER $APP_UID", apiDockerfile, StringComparison.Ordinal);
         Assert.Contains("USER $APP_UID", workerDockerfile, StringComparison.Ordinal);
         Assert.Contains("USER $APP_UID", migrateDockerfile, StringComparison.Ordinal);
-        Assert.Contains("nginxinc/nginx-unprivileged", webDockerfile, StringComparison.Ordinal);
+        Assert.Contains(
+            "nginxinc/nginx-unprivileged:1.30.4-alpine3.24@sha256:93722936b82ec8a1178d48448e619226680d2de3706a1640800e186cd5fa7fd3",
+            webDockerfile,
+            StringComparison.Ordinal);
     }
 
     [Fact]
