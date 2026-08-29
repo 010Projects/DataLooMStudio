@@ -94,7 +94,7 @@ jobs:
         run: docker build --file src/Web/DataLooMStudio.Web/Dockerfile --tag dataloomstudio-web:ci src/Web/DataLooMStudio.Web
 
       - name: Scan API container
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@v0.32.0
         with:
           image-ref: dataloomstudio-api:ci
           format: table
@@ -103,7 +103,7 @@ jobs:
           exit-code: '1'
 
       - name: Scan worker container
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@v0.32.0
         with:
           image-ref: dataloomstudio-worker:ci
           format: table
@@ -112,7 +112,7 @@ jobs:
           exit-code: '1'
 
       - name: Scan migration container
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@v0.32.0
         with:
           image-ref: dataloomstudio-migrate:ci
           format: table
@@ -121,7 +121,7 @@ jobs:
           exit-code: '1'
 
       - name: Scan web container
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@v0.32.0
         with:
           image-ref: dataloomstudio-web:ci
           format: table
