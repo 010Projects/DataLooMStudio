@@ -1,4 +1,6 @@
 using DataLooMStudio.Dls.Migrate;
+using DataLooMStudio.Infrastructure.Configuration;
+using DataLooMStudio.Infrastructure.DependencyInjection;
 using DataLooMStudio.Runtime.Persistence.DependencyInjection;
 
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +11,7 @@ var command = MigrationCommand.Parse(args);
 
 if (!command.Apply)
 {
-    Console.Error.WriteLine("Usage: DataLooMStudio.Dls.Migrate --apply [--connection <connection-string>]");
+    Console.Error.WriteLine("Usage: DataLooMStudio.Dls.Migrate --apply [--bootstrap-runtime-roles] [--connection <connection-string>]");
     return MigrationExitCodes.UsageError;
 }
 
@@ -20,18 +22,39 @@ if (!string.IsNullOrWhiteSpace(command.ConnectionString))
     builder.Configuration["ConnectionStrings:DataLooM"] = command.ConnectionString;
 }
 
+ProductionConfigurationValidator.ValidateAndThrow(
+    builder.Configuration,
+    builder.Environment.EnvironmentName,
+    "DataLooMStudio.Dls.Migrate",
+    requireHttpSurface: false,
+    requireWorkerIdentity: false);
+
+builder.Services.AddDataLooMInfrastructure(builder.Configuration);
 builder.Services.AddDataLooMPersistence(builder.Configuration);
 builder.Services.AddScoped<MigrationRunner>();
+builder.Services.AddScoped<RuntimeDatabaseRoleBootstrapper>();
 
 using var host = builder.Build();
 await using var scope = host.Services.CreateAsyncScope();
 var runner = scope.ServiceProvider.GetRequiredService<MigrationRunner>();
+var roleBootstrapper = scope.ServiceProvider.GetRequiredService<RuntimeDatabaseRoleBootstrapper>();
+
+if (command.BootstrapRuntimeRoles)
+{
+    await roleBootstrapper.EnsurePrincipalsAsync(CancellationToken.None);
+}
+
 var result = await runner.ApplyAsync(CancellationToken.None);
 
 if (!result.Succeeded)
 {
     Console.Error.WriteLine(result.ErrorMessage);
     return MigrationExitCodes.Failure;
+}
+
+if (command.BootstrapRuntimeRoles)
+{
+    await roleBootstrapper.ApplyGrantsAsync(CancellationToken.None);
 }
 
 Console.WriteLine(result.AppliedMigrationCount == 0

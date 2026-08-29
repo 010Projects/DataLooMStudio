@@ -37,6 +37,11 @@ public sealed class EvidenceReviewDecisionApiTests(
         var tenantId = TenantId.New();
         var workspaceId = WorkspaceId.New();
         await SeedTenantAndWorkspaceAsync(tenantId, workspaceId);
+        await SeedProductAuthorityAsync(
+            tenantId,
+            workspaceId,
+            Guid.Empty,
+            ("api-review-owner", ProductAuthorityPermissions.RegisterEvidence));
         var store = new DevelopmentEvidenceObjectStore();
         using var client = CreateClient(store);
         AddContextHeaders(client, tenantId, workspaceId, "api-review-owner");
@@ -97,6 +102,11 @@ public sealed class EvidenceReviewDecisionApiTests(
         var tenantId = TenantId.New();
         var workspaceId = WorkspaceId.New();
         await SeedTenantAndWorkspaceAsync(tenantId, workspaceId);
+        await SeedProductAuthorityAsync(
+            tenantId,
+            workspaceId,
+            Guid.Empty,
+            ("api-review-owner-denied", ProductAuthorityPermissions.RegisterEvidence));
         var store = new DevelopmentEvidenceObjectStore();
         using var client = CreateClient(store);
         AddContextHeaders(client, tenantId, workspaceId, "api-review-owner-denied");
@@ -311,9 +321,14 @@ public sealed class EvidenceReviewDecisionApiTests(
                 });
             }
 
-            var resourceId = assignment.PermissionKey == ProductAuthorityPermissions.ManageEvidenceReviewAssignments
-                ? ProductAuthorityResourceIds.Any
-                : reviewId.ToString("D");
+            var isEvidenceContribution = assignment.PermissionKey == ProductAuthorityPermissions.RegisterEvidence;
+            var resourceType = isEvidenceContribution
+                ? ProductAuthorityResourceTypes.Evidence
+                : ProductAuthorityResourceTypes.EvidenceReview;
+            var resourceId = isEvidenceContribution
+                || assignment.PermissionKey == ProductAuthorityPermissions.ManageEvidenceReviewAssignments
+                    ? ProductAuthorityResourceIds.Any
+                    : reviewId.ToString("D");
             dbContext.ProductPermissionAssignments.Add(new ProductPermissionAssignment
             {
                 TenantId = tenantId,
@@ -321,7 +336,7 @@ public sealed class EvidenceReviewDecisionApiTests(
                 ActorId = actor.Id,
                 ActorSubject = assignment.Subject,
                 PermissionKey = assignment.PermissionKey,
-                ResourceType = ProductAuthorityResourceTypes.EvidenceReview,
+                ResourceType = resourceType,
                 ResourceId = resourceId,
                 State = ProductPermissionAssignmentStates.Active,
                 AuthorityVersion = actor.AuthorityVersion,

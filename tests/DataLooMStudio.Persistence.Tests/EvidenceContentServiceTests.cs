@@ -427,7 +427,13 @@ public sealed class EvidenceContentServiceTests(PostgresFixture fixture) : IClas
     {
         var rls = new PostgresRlsSessionContext(dbContext, accessor);
         IOutboxWriter outboxWriter = new EfOutboxWriter(dbContext);
-        return new EvidenceRegistrationService(dbContext, accessor, clock, outboxWriter, rls);
+        return new EvidenceRegistrationService(
+            dbContext,
+            accessor,
+            clock,
+            outboxWriter,
+            new TestProductAuthorityService(),
+            rls);
     }
 
     private static EvidenceContentService CreateContentService(
@@ -445,6 +451,7 @@ public sealed class EvidenceContentServiceTests(PostgresFixture fixture) : IClas
             clock ?? new MutableClock(DateTimeOffset.UtcNow),
             outboxWriter ?? new EfOutboxWriter(dbContext),
             rls,
+            new TestProductAuthorityService(),
             store,
             scanner);
     }

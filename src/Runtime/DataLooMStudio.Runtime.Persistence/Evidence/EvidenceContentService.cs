@@ -8,8 +8,10 @@ using DataLooMStudio.Infrastructure.SecurityScanning;
 using DataLooMStudio.Infrastructure.Storage;
 using DataLooMStudio.Modules.Audit;
 using DataLooMStudio.Modules.Evidence;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Lineage;
 using DataLooMStudio.Modules.Workspaces;
+using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.Runtime.Persistence.Security;
 using DataLooMStudio.SharedKernel.Abstractions;
 using DataLooMStudio.SharedKernel.Integrity;
@@ -25,6 +27,7 @@ public sealed class EvidenceContentService(
     IClock clock,
     IOutboxWriter outboxWriter,
     PostgresRlsSessionContext rlsSessionContext,
+    IProductAuthorityService productAuthorityService,
     IEvidenceObjectStore objectStore,
     IEvidenceMalwareScanner malwareScanner) : IEvidenceContentService
 {
@@ -57,6 +60,7 @@ public sealed class EvidenceContentService(
             await EnsureWorkspaceActiveAsync(context, cancellationToken);
             var evidence = await LoadEvidenceAsync(request.EvidenceId, cancellationToken);
             var version = await LoadCurrentVersionAsync(evidence, cancellationToken);
+            await EnsureContributionAuthorityAsync(actor, evidence, cancellationToken);
             var idempotencyKey = NormalizeIdempotencyKey(
                 request.IdempotencyKey,
                 $"derived:{Hash($"allocation|{evidence.Id}|{version.Id}")}");
@@ -87,6 +91,7 @@ public sealed class EvidenceContentService(
                     context,
                     existingAllocation,
                     cancellationToken);
+                await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
 
                 return new EvidenceUploadAllocationResult(
@@ -256,6 +261,7 @@ public sealed class EvidenceContentService(
             var version = await dbContext.EvidenceVersions
                 .SingleOrDefaultAsync(item => item.Id == request.VersionId && item.EvidenceId == evidence.Id, cancellationToken)
                 ?? throw new EvidenceContentForbiddenException("Evidence version is not available within the active workspace context.");
+            await EnsureContributionAuthorityAsync(actor, evidence, cancellationToken);
             var allocation = await dbContext.EvidenceUploadAllocations
                 .SingleOrDefaultAsync(item =>
                     item.Id == loaded.Allocation.Id
@@ -267,6 +273,7 @@ public sealed class EvidenceContentService(
                 .SingleOrDefaultAsync(verification => verification.AllocationId == allocation.Id, cancellationToken);
             if (existingVerification is not null)
             {
+                await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return ToReceiptResult(existingVerification, idempotentReplay: true);
             }
@@ -364,6 +371,8 @@ public sealed class EvidenceContentService(
             var version = await dbContext.EvidenceVersions
                 .SingleOrDefaultAsync(item => item.Id == request.VersionId && item.EvidenceId == evidence.Id, cancellationToken)
                 ?? throw new EvidenceContentForbiddenException("Evidence version is not available within the active workspace context.");
+            await EnsureContributionAuthorityAsync(actor, evidence, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
             var allocation = await dbContext.EvidenceUploadAllocations
                 .SingleOrDefaultAsync(item =>
                     item.EvidenceId == evidence.Id
@@ -781,6 +790,30 @@ public sealed class EvidenceContentService(
         return await dbContext.EvidenceRecords
             .SingleOrDefaultAsync(evidence => evidence.Id == evidenceId, cancellationToken)
             ?? throw new EvidenceContentForbiddenException("Evidence is not available within the active workspace context.");
+    }
+
+    private async Task EnsureContributionAuthorityAsync(
+        string actor,
+        EvidenceRecord evidence,
+        CancellationToken cancellationToken)
+    {
+        var authority = await productAuthorityService.EvaluatePermissionAsync(
+            new ProductAuthorityEvaluationRequest(
+                actor,
+                ProductAuthorityPermissions.RegisterEvidence,
+                ProductAuthorityResourceTypes.Evidence,
+                evidence.Id.ToString(),
+                ProductCapability: ProductAuthorityCapabilities.EvidenceContent,
+                Action: ProductAuthorityActions.EvidenceRegister,
+                Classification: evidence.Classification,
+                LifecycleState: evidence.LifecycleState,
+                CausationId: $"evidence-content:{evidence.Id}"),
+            cancellationToken);
+
+        if (!authority.Succeeded)
+        {
+            throw new EvidenceContentForbiddenException("Product authority denied the Evidence content operation.");
+        }
     }
 
     private async Task<EvidenceVersion> LoadCurrentVersionAsync(

@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\DataLooMStudio.Infrastructure\DataLooMStudio.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Runtime\DataLooMStudio.Runtime.Persistence\DataLooMStudio.Runtime.Persistence.csproj" />
   </ItemGroup>
 
@@ -12,6 +13,7 @@
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
 
   <PropertyGroup>

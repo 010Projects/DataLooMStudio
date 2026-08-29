@@ -1,58 +1,77 @@
-# DataLooM Studio Deployment Preparation Plan
+# DataLooM Studio Non-Production Test Preparation Plan
 
-Status: Ready for Validation
+Status: Repository Implementation Complete - Hosted Validation Pending
 
-Artifact: DLS-ENG-FOUNDATION-001 - Greenfield Solution Foundation
+Artifact: DLS-ENG-NONPROD-TEST-ENVIRONMENT-PREPARATION-001
 
-## Scope
+Canonical baseline: e794bb4e4b32416b401b60c567fe83bdac21fefb
 
-Prepare deployment-ready engineering foundation assets for the DataLooMStudio modular monolith. This plan does not grant repository creation, product, security, restricted pilot, production, or AI execution authority.
+## Authority Boundary
 
-## Architecture Baseline
+This plan prepares repository assets only. It does not authorize Azure deployment, real Entra application creation, production credentials, customer onboarding, Production Evidence, Restricted Pilot, AI execution, physical Evidence destruction, or Production Authority.
 
-- Backend: .NET 10 LTS modular monolith exposed through REST/OpenAPI.
-- Frontend: React 19.2.
-- Data: PostgreSQL 18 through EF Core and Npgsql.
-- Messaging: Azure Service Bus with application-owned transactional outbox.
-- Storage: Azure Blob Storage for evidence payloads.
-- Identity and secrets: Microsoft Entra ID or External ID with Key Vault.
-- Observability: OpenTelemetry.
-- Delivery: GitHub Actions and Bicep.
+## Mode and Recipe
 
-## Mandatory Boundaries
+- Mode: modernize the existing .NET 10 / React 19.2 modular monolith.
+- Deployment recipe: Azure Developer CLI with the existing Bicep infrastructure.
+- Hosting: Azure Container Apps for API, worker, web, and an explicitly invoked migration job.
+- Data: Azure Database for PostgreSQL Flexible Server 18 with Entra authentication and separated database principals.
+- Identity: user-assigned managed identities for workloads and parameterized Entra public-client/API contracts.
+- Messaging/storage/secrets: Service Bus Premium, private Blob Storage, and Key Vault.
+- Telemetry: OpenTelemetry exported to a parameterized collector and Azure Monitor-compatible resources.
 
-- No `src/Modules/Operations` module.
-- `AiGovernance` exists as an AI boundary only; no AI execution is implemented.
-- Tenant and workspace isolation are enforced in contracts, middleware, and persistence.
-- Evidence integrity, auditability, lineage, retention, legal hold, and commercial capability boundaries are first-class module concerns.
-- Lifecycle and workflow responsibilities remain separate.
-- ADR-014 defines the evidence consistency boundary.
+## Preparation Work
 
-## Planned Outputs
+1. Introduce hardened Test and Production environment semantics while retaining Development convenience.
+2. Separate migration, API, and worker database identities and database grants; remove administrator credentials from runtime containers.
+3. Add an explicit, non-automatic Container Apps migration job and deterministic deployment ordering contract.
+4. Define immutable image references, registry publication inputs, provenance metadata, and signing/admission activation boundaries.
+5. Add parameterized non-production Entra API and browser-public-client contracts with canonical claims.
+6. Implement frontend authentication and one bounded Evidence workflow against the protected API.
+7. Add a fail-closed HTTP malware-scanner adapter plus deterministic contract tests; no always-clean Test bypass.
+8. Activate transactional outbox dispatch and reconciliation in the worker while preserving the inert disposal adapter.
+9. Add metrics, health signals, dashboard/alert definitions, correlation, and deployment-time OTLP configuration.
+10. Add hostile isolation and end-to-end harnesses that distinguish local integration from deployed Test validation.
+11. Add Test parameters, recovery drill assets, and the eventual operator deployment runbook.
+12. Extend CI without reducing any existing build, audit, Trivy, or supply-chain gate.
 
-- Compilable .NET 10 solution with API, shared kernel, infrastructure, and module projects.
-- Buildable React 19.2 application under `src/Web/DataLooMStudio.Web`.
-- Module manifests and governance documents under `src/Modules/*/module.manifest.json` and `governance/`.
-- Bicep infrastructure for Container Apps, PostgreSQL 18, Service Bus, Blob Storage, Key Vault, managed identity, private networking, and Log Analytics.
-- CI workflow for restore, build, test, frontend build, audit, and Bicep build.
+## Validation Steps
 
-## Validation Plan
+- Restore and Release-build the full .NET solution.
+- Run Architecture, API, persistence, worker, identity, scanner, and configuration tests.
+- Run formatting, NuGet vulnerability audit, secret scan, and repository diff hygiene.
+- Run frontend install, tests, production build, and high-severity npm audit.
+- Generate an idempotent migration artifact and validate migration-job Bicep.
+- Compile Bicep and validate Test parameter contracts without deploying.
+- Build and scan all four images in hosted CI.
+- Validate immutable image/provenance contracts and upload evidence artifacts.
+- Validate hostile-isolation and end-to-end harness static/local modes.
 
-- Restore, build, and test .NET projects.
-- Restore and build frontend dependencies.
-- Run package vulnerability checks where tooling supports it.
-- Run Bicep build if Azure CLI/Bicep tooling is available locally.
+## External Activation Prerequisites
+
+- Repository protection/ruleset remediation under DLS-REPO-RISK-001.
+- Explicit non-production Test deployment authority.
+- Approved Azure subscription, region, resource group, and naming context.
+- Real Entra API/public-client applications and consent.
+- Approved registry and signing identity/policy.
+- Approved malware-scanning service endpoint and workload identity.
+- Approved OTLP/Azure Monitor destination.
+- Database Entra administrator/bootstrap operator for initial principal grants.
+- Test-only synthetic Evidence dataset; no customer or production Evidence.
+
+## Stop Conditions
+
+Stop before any real Azure resource change, real Entra application creation, external paid-service purchase, irreversible operation, Product or Architecture semantic change, weakened security control, physical Evidence destruction, or Production Authority decision.
 
 ## Deployment Status
 
-Deployment is explicitly out of scope for this engineering checkpoint.
+Azure Test deployment is not performed or authorized by this plan.
 
-## Decisions
+## Static Validation Evidence
 
-- Hosting preparation target: Azure Container Apps for API and web containers.
-- Database target: Azure Database for PostgreSQL Flexible Server with PostgreSQL version `18`.
-- Network target: private PostgreSQL subnet and Container Apps virtual network integration.
-- Secret target: deployment-supplied secure parameters and Key Vault with RBAC enabled.
-- Messaging target: Azure Service Bus Premium namespace with an outbox topic.
-- Evidence target: private Azure Blob container with blob versioning and delete retention.
-- OpenAPI target: first-party `/openapi/v1.json` endpoint to avoid carrying a vulnerable OpenAPI generator package.
+- Release solution build: pass, zero warnings and zero errors.
+- Bicep build and lint: pass against `infra/main.bicep`.
+- Test parameter contracts: pass in placeholder-review and infrastructure-bootstrap modes.
+- Migration artifact generation: pass; idempotent SQL generated locally.
+- Azure subscription validation and what-if: not run because this checkpoint does not authorize an Azure control-plane operation or provide an approved target subscription/resource group.
+- Deployment: not run and not authorized.

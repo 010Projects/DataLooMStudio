@@ -1,5 +1,6 @@
 using DataLooMStudio.Dls.Migrate;
 using DataLooMStudio.Infrastructure.Clock;
+using DataLooMStudio.Infrastructure.Database;
 using DataLooMStudio.Infrastructure.Outbox;
 using DataLooMStudio.Infrastructure.RequestContext;
 using DataLooMStudio.Modules.Audit;
@@ -14,6 +15,7 @@ using DataLooMStudio.SharedKernel.Identity;
 using DataLooMStudio.SharedKernel.RequestContext;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 using Npgsql;
 
@@ -54,6 +56,90 @@ public sealed class PersistenceFoundationTests(PostgresFixture fixture) : IClass
 
         Assert.False(result.Succeeded);
         Assert.NotNull(result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Worker_outbox_functions_are_execute_only_scope_preserving_and_lease_safe()
+    {
+        var tenantId = TenantId.New();
+        var workspaceId = WorkspaceId.New();
+        var message = new OutboxMessage
+        {
+            TenantId = tenantId,
+            WorkspaceId = workspaceId,
+            OwningModule = "Evidence",
+            MessageType = "SyntheticScopePreservation",
+            PayloadJson = "{\"synthetic\":true}",
+            CorrelationId = $"corr-{Guid.NewGuid():N}",
+            OccurredAt = DateTimeOffset.UtcNow,
+            AvailableAt = DateTimeOffset.UtcNow
+        };
+        await using (var dbContext = fixture.CreateDbContext(CreateRequestContext(tenantId, workspaceId)))
+        {
+            dbContext.OutboxMessages.Add(message);
+            await dbContext.SaveChangesAsync();
+        }
+
+        var apiRole = $"dls_api_test_{Guid.NewGuid():N}"[..32];
+        var workerRole = $"dls_worker_test_{Guid.NewGuid():N}"[..32];
+        var quotedApiRole = new NpgsqlCommandBuilder().QuoteIdentifier(apiRole);
+        var quotedWorkerRole = new NpgsqlCommandBuilder().QuoteIdentifier(workerRole);
+        await using (var admin = new NpgsqlConnection(fixture.AdminConnectionString))
+        {
+            await admin.OpenAsync();
+            await using var createRoles = admin.CreateCommand();
+            createRoles.CommandText = $"""
+                create role {quotedApiRole} login password 'postgres';
+                create role {quotedWorkerRole} login password 'postgres';
+                """;
+            await createRoles.ExecuteNonQueryAsync();
+        }
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DataLooM"] = fixture.AdminConnectionString,
+                ["DataLooM:DatabaseRoles:ApiName"] = apiRole,
+                ["DataLooM:DatabaseRoles:ApiObjectId"] = Guid.NewGuid().ToString("D"),
+                ["DataLooM:DatabaseRoles:WorkerName"] = workerRole,
+                ["DataLooM:DatabaseRoles:WorkerObjectId"] = Guid.NewGuid().ToString("D")
+            })
+            .Build();
+        await new RuntimeDatabaseRoleBootstrapper(configuration, new UnexpectedDatabaseTokenProvider())
+            .ApplyGrantsAsync(CancellationToken.None);
+
+        var workerConnectionString = new NpgsqlConnectionStringBuilder(fixture.AdminConnectionString)
+        {
+            Username = workerRole,
+            Password = "postgres"
+        }.ConnectionString;
+        await using var dataSource = NpgsqlDataSource.Create(workerConnectionString);
+        var store = new PostgresOutboxDispatchStore(dataSource);
+
+        var tableDenied = await Assert.ThrowsAsync<PostgresException>(async () =>
+        {
+            await using var connection = await dataSource.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand("select count(*) from foundation.outbox_messages;", connection);
+            await command.ExecuteScalarAsync();
+        });
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, tableDenied.SqlState);
+
+        var staleLease = Guid.NewGuid();
+        var firstClaim = await store.ClaimAsync(1, staleLease, DateTimeOffset.UtcNow.AddSeconds(-1), CancellationToken.None);
+        var currentLease = Guid.NewGuid();
+        var reclaimed = await store.ClaimAsync(1, currentLease, DateTimeOffset.UtcNow.AddMinutes(2), CancellationToken.None);
+
+        Assert.Single(firstClaim);
+        Assert.Single(reclaimed);
+        Assert.Equal(message.Id, reclaimed[0].Id);
+        Assert.Equal(tenantId, reclaimed[0].TenantId);
+        Assert.Equal(workspaceId, reclaimed[0].WorkspaceId);
+        Assert.Equal(2, reclaimed[0].Attempts);
+        Assert.False(await store.CompleteAsync(message.Id, staleLease, DateTimeOffset.UtcNow, CancellationToken.None));
+        Assert.True(await store.CompleteAsync(message.Id, currentLease, DateTimeOffset.UtcNow, CancellationToken.None));
+
+        await using var verification = fixture.CreateDbContext(CreateRequestContext(tenantId, workspaceId));
+        Assert.Equal(OutboxMessageStatus.Published, (await verification.OutboxMessages.SingleAsync(item => item.Id == message.Id)).Status);
     }
 
     [Fact]
@@ -334,7 +420,19 @@ public sealed class PersistenceFoundationTests(PostgresFixture fixture) : IClass
     {
         var rls = new PostgresRlsSessionContext(dbContext, accessor);
         IOutboxWriter outboxWriter = new EfOutboxWriter(dbContext);
-        return new EvidenceRegistrationService(dbContext, accessor, new SystemClock(), outboxWriter, rls);
+        return new EvidenceRegistrationService(
+            dbContext,
+            accessor,
+            new SystemClock(),
+            outboxWriter,
+            new TestProductAuthorityService(),
+            rls);
+    }
+
+    private sealed class UnexpectedDatabaseTokenProvider : IDatabaseAccessTokenProvider
+    {
+        public ValueTask<string> GetTokenAsync(CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Passwordless token acquisition is not expected in the local PostgreSQL fixture.");
     }
 
     private async Task SeedTenantAndWorkspaceAsync(TenantId tenantId, WorkspaceId workspaceId, RequestContextAccessor accessor)

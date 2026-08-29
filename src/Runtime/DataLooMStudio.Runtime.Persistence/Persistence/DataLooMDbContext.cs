@@ -670,6 +670,7 @@ public sealed class DataLooMDbContext(
         builder.Property(message => message.PayloadJson).HasColumnType("jsonb").IsRequired();
         builder.Property(message => message.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(message => message.Status).HasConversion<string>().HasMaxLength(32);
+        builder.Property(message => message.LastError).HasMaxLength(1024);
         ConfigureWorkspaceScope(builder);
         builder.HasIndex(message => new { message.TenantId, message.WorkspaceId, message.Status, message.AvailableAt });
         builder.HasIndex(message => new { message.OwningModule, message.MessageType });

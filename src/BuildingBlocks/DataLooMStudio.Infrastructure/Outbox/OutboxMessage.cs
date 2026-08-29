@@ -27,5 +27,11 @@ public sealed class OutboxMessage : IWorkspaceScoped
 
     public int Attempts { get; set; }
 
+    public Guid? LeaseId { get; set; }
+
+    public DateTimeOffset? LeaseExpiresAt { get; set; }
+
+    public string? LastError { get; set; }
+
     public DateTimeOffset? PublishedAt { get; set; }
 }

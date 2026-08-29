@@ -6,6 +6,7 @@ using System.Text.Encodings.Web;
 using DataLooMStudio.Infrastructure.RequestContext;
 using DataLooMStudio.Modules.Tenancy;
 using DataLooMStudio.Modules.Workspaces;
+using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.SharedKernel.Identity;
 using DataLooMStudio.SharedKernel.RequestContext;
 
@@ -16,6 +17,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -148,7 +150,24 @@ public sealed class EvidenceRegistrationApiTests(
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    private HttpClient CreateClient()
+    [Fact]
+    public async Task Api_denies_registration_without_product_permission()
+    {
+        var tenantId = TenantId.New();
+        var workspaceId = WorkspaceId.New();
+        await SeedTenantAndWorkspaceAsync(tenantId, workspaceId);
+        using var client = CreateClient(new TestProductAuthorityService(permit: false));
+        AddContextHeaders(client, tenantId, workspaceId, "actor-api-denied");
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/v1/workspaces/{workspaceId}/evidence",
+            CreateRequest("api-reg-denied-001", "api-denied.txt", "tenant/workspace/api-denied.txt"),
+            CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    private HttpClient CreateClient(IProductAuthorityService? productAuthorityService = null)
     {
         return factory.WithWebHostBuilder(builder =>
         {
@@ -162,6 +181,9 @@ public sealed class EvidenceRegistrationApiTests(
 
             builder.ConfigureTestServices(services =>
             {
+                services.RemoveAll<IProductAuthorityService>();
+                services.AddScoped<IProductAuthorityService>(_ =>
+                    productAuthorityService ?? new TestProductAuthorityService());
                 services.AddAuthentication(options =>
                     {
                         options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;

@@ -8,6 +8,12 @@
     "environment": {
       "value": "dev"
     },
+    "deployMigrationJob": {
+      "value": false
+    },
+    "migrationSuccessEvidence": {
+      "value": ""
+    },
     "postgresAdministratorLogin": {
       "value": "dlsadmin"
     },
@@ -22,6 +28,9 @@
     },
     "workerContainerImage": {
       "value": "ghcr.io/010projects/dataloomstudio-worker:placeholder"
+    },
+    "migrationContainerImage": {
+      "value": "ghcr.io/010projects/dataloomstudio-migrate:placeholder"
     },
     "entraAuthority": {
       "value": ""

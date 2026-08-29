@@ -39,6 +39,16 @@ namespace DataLooMStudio.Runtime.Persistence.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("MessageType")
                         .IsRequired()
                         .HasMaxLength(256)

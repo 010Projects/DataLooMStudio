@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 
 using DataLooMStudio.Api.Endpoints;
+using DataLooMStudio.Api.Health;
 using DataLooMStudio.Api.Middleware;
 using DataLooMStudio.Infrastructure.Configuration;
 using DataLooMStudio.Infrastructure.DependencyInjection;
@@ -10,6 +11,7 @@ using DataLooMStudio.Runtime.Persistence.DependencyInjection;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
@@ -72,16 +74,39 @@ builder.Services
     });
 
 builder.Services.AddAuthorizationBuilder()
-    .AddPolicy("WorkspaceScoped", policy => policy.RequireAuthenticatedUser());
+    .AddPolicy("WorkspaceScoped", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireAssertion(context =>
+        {
+            var requiredScope = builder.Configuration["EntraId:RequiredScope"];
+            if (string.IsNullOrWhiteSpace(requiredScope))
+            {
+                return true;
+            }
+
+            return context.User.FindAll("scp")
+                .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                .Contains(requiredScope, StringComparer.Ordinal);
+        });
+    });
 
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<DataLooMDbContext>("postgresql");
+    .AddDbContextCheck<DataLooMDbContext>("postgresql")
+    .AddCheck<MalwareScannerHealthCheck>("malware-scanner");
 
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService("DataLooMStudio.Api"))
     .WithTracing(tracing => tracing
+        .AddSource("Npgsql")
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
+        .AddOtlpExporter())
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddMeter("DataLooMStudio.Api")
+        .AddMeter("DataLooMStudio.Persistence")
         .AddOtlpExporter());
 
 var app = builder.Build();

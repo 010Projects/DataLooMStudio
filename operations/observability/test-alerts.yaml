@@ -1,0 +1,57 @@
+artifact: DLS-ENG-NONPROD-TEST-ENVIRONMENT-PREPARATION-001
+authority: non-production-test-only
+defaults:
+  evaluationFrequency: PT5M
+  windowSize: PT10M
+  autoMitigate: true
+rules:
+  - name: api-readiness-unavailable
+    severity: 1
+    signal: readyz_success_ratio
+    operator: LessThan
+    threshold: 0.95
+  - name: api-server-error-rate
+    severity: 2
+    signal: http_5xx_ratio
+    operator: GreaterThan
+    threshold: 0.05
+  - name: api-p95-latency
+    severity: 3
+    signal: dls.api.request.duration.p95
+    operator: GreaterThan
+    thresholdMilliseconds: 2000
+  - name: outbox-backlog
+    severity: 2
+    signal: dls.outbox.backlog
+    operator: GreaterThan
+    threshold: 100
+  - name: worker-or-servicebus-failures
+    severity: 2
+    signal: dls.outbox.failed
+    operator: GreaterThan
+    threshold: 5
+  - name: authorization-denial-spike
+    severity: 3
+    signal: dls.authorization.denials
+    operator: GreaterThan
+    threshold: 50
+  - name: malware-scan-failure
+    severity: 2
+    logMatch: Evidence.ScanCompleted AND outcome != Clean
+    operator: GreaterThan
+    threshold: 0
+  - name: database-readiness-failure
+    severity: 1
+    logMatch: postgresql AND HealthCheck AND Unhealthy
+    operator: GreaterThan
+    threshold: 0
+  - name: audit-persistence-failure
+    severity: 1
+    signal: dls.audit.persistence.failures
+    operator: GreaterThan
+    threshold: 0
+  - name: application-startup-failure
+    severity: 1
+    logMatch: ProductionConfigurationException OR startup failed
+    operator: GreaterThan
+    threshold: 0

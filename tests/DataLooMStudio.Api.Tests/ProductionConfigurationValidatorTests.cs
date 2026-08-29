@@ -46,7 +46,8 @@ public sealed class ProductionConfigurationValidatorTests
         var configuration = BuildConfiguration(new Dictionary<string, string?>
         {
             ["AllowedHosts"] = "api.dataloomstudio.internal",
-            ["ConnectionStrings:DataLooM"] = "Host=dls-prod-pg.postgres.database.azure.com;Port=5432;Database=dataloomstudio;Username=dls_app;Password=externalized;Ssl Mode=Require;Trust Server Certificate=false",
+            ["ConnectionStrings:DataLooM"] = "Host=dls-prod-pg.postgres.database.azure.com;Port=5432;Database=dataloomstudio;Username=dls_app;Ssl Mode=Require;Trust Server Certificate=false",
+            ["DataLooM:PostgreSqlUseManagedIdentity"] = "true",
             ["DataLooM:BlobServiceUri"] = "https://dlsprodstorage.blob.core.windows.net",
             ["DataLooM:EvidenceContainerName"] = "evidence",
             ["DataLooM:ServiceBusFullyQualifiedNamespace"] = "dls-prod.servicebus.windows.net",
@@ -57,6 +58,10 @@ public sealed class ProductionConfigurationValidatorTests
             ["DataLooM:AllowedOriginsCsv"] = "https://app.dataloomstudio.internal",
             ["EntraId:Authority"] = "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0",
             ["EntraId:ClientId"] = "22222222-2222-2222-2222-222222222222",
+            ["EntraId:RequiredScope"] = "Dls.Access",
+            ["DataLooM:MalwareScannerEndpoint"] = "https://scanner.dataloomstudio.internal/",
+            ["DataLooM:MalwareScannerAudience"] = "api://33333333-3333-3333-3333-333333333333",
+            ["DataLooM:MalwareScannerTimeoutSeconds"] = "30",
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://otel.dataloomstudio.internal"
         });
 
@@ -105,11 +110,54 @@ public sealed class ProductionConfigurationValidatorTests
         Assert.True(result.Succeeded);
     }
 
+    [Fact]
+    public void Test_configuration_rejects_development_defaults()
+    {
+        var configuration = BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["AllowedHosts"] = "*",
+            ["ConnectionStrings:DataLooM"] = "Host=localhost;Port=5432;Database=dataloomstudio;Username=dataloom_app;Password=local",
+            ["DataLooM:EnvironmentName"] = "dls-test",
+            ["DataLooM:EnvironmentKind"] = "test"
+        });
+
+        var result = ProductionConfigurationValidator.Validate(
+            configuration,
+            "Test",
+            "DataLooMStudio.Api",
+            requireHttpSurface: true,
+            requireWorkerIdentity: false);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Errors, error => error.Contains("localhost", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Errors, error => error.Contains("PostgreSqlUseManagedIdentity", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("persisted database password", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Development_host_cannot_bypass_hardened_test_kind()
+    {
+        var configuration = BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["DataLooM:EnvironmentKind"] = "test"
+        });
+
+        var result = ProductionConfigurationValidator.Validate(
+            configuration,
+            "Development",
+            "DataLooMStudio.Api",
+            requireHttpSurface: true,
+            requireWorkerIdentity: false);
+
+        Assert.False(result.Succeeded);
+    }
+
     private static Dictionary<string, string?> GovernedCommonConfiguration()
     {
         return new Dictionary<string, string?>
         {
-            ["ConnectionStrings:DataLooM"] = "Host=dls-prod-pg.postgres.database.azure.com;Port=5432;Database=dataloomstudio;Username=dls_worker;Password=externalized;Ssl Mode=Require;Trust Server Certificate=false",
+            ["ConnectionStrings:DataLooM"] = "Host=dls-prod-pg.postgres.database.azure.com;Port=5432;Database=dataloomstudio;Username=dls_worker;Ssl Mode=Require;Trust Server Certificate=false",
+            ["DataLooM:PostgreSqlUseManagedIdentity"] = "true",
             ["DataLooM:BlobServiceUri"] = "https://dlsprodstorage.blob.core.windows.net",
             ["DataLooM:EvidenceContainerName"] = "evidence",
             ["DataLooM:ServiceBusFullyQualifiedNamespace"] = "dls-prod.servicebus.windows.net",

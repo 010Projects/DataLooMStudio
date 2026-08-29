@@ -62,6 +62,10 @@ jobs:
         working-directory: src/Web/DataLooMStudio.Web
         run: npm run build
 
+      - name: Test frontend authentication and Evidence contracts
+        working-directory: src/Web/DataLooMStudio.Web
+        run: npm test
+
       - name: Audit frontend packages
         working-directory: src/Web/DataLooMStudio.Web
         run: npm audit --audit-level=high
@@ -80,6 +84,14 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: az bicep build --file infra/main.bicep
+
+      - name: Validate non-production Test contract
+        shell: pwsh
+        run: ./scripts/Test-TestEnvironmentContract.ps1 -AllowPlaceholders
+
+      - name: Validate deployed Test harness contracts
+        shell: pwsh
+        run: ./scripts/Test-DeploymentHarnessContracts.ps1
 
       - name: Build API container
         run: docker build --file src/Api/DataLooMStudio.Api/Dockerfile --tag dataloomstudio-api:ci .

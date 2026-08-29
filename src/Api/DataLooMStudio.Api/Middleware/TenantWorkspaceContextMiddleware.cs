@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Security.Claims;
 
 using DataLooMStudio.SharedKernel.Identity;
@@ -11,11 +13,15 @@ public sealed class TenantWorkspaceContextMiddleware(
     RequestDelegate next,
     ILogger<TenantWorkspaceContextMiddleware> logger)
 {
+    private static readonly Meter Meter = new("DataLooMStudio.Api");
+    private static readonly Counter<long> AuthorizationDenials = Meter.CreateCounter<long>("dls.authorization.denials");
+    private static readonly Histogram<double> RequestDuration = Meter.CreateHistogram<double>("dls.api.request.duration", "ms");
     private const string CorrelationHeader = "X-Correlation-Id";
     private const string WorkspaceHeader = "X-Workspace-Id";
 
     public async Task InvokeAsync(HttpContext httpContext, IRequestContextAccessor contextAccessor)
     {
+        var started = Stopwatch.GetTimestamp();
         var correlationId = ResolveCorrelationId(httpContext);
         httpContext.Response.Headers[CorrelationHeader] = correlationId;
 
@@ -35,6 +41,7 @@ public sealed class TenantWorkspaceContextMiddleware(
                 correlationId);
 
             httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+            AuthorizationDenials.Add(1, new KeyValuePair<string, object?>("reason", "context_missing"));
             await httpContext.Response.WriteAsJsonAsync(new
             {
                 error = "tenant_workspace_context_required",
@@ -48,7 +55,20 @@ public sealed class TenantWorkspaceContextMiddleware(
             contextAccessor.Current = requestContext;
         }
 
-        await next(httpContext);
+        using (logger.BeginScope(new Dictionary<string, object?> { ["CorrelationId"] = correlationId }))
+        {
+            await next(httpContext);
+        }
+
+        if (httpContext.Response.StatusCode is StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden)
+        {
+            AuthorizationDenials.Add(1, new KeyValuePair<string, object?>("status", httpContext.Response.StatusCode));
+        }
+
+        RequestDuration.Record(
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            new KeyValuePair<string, object?>("http.method", httpContext.Request.Method),
+            new KeyValuePair<string, object?>("http.status_code", httpContext.Response.StatusCode));
     }
 
     private static string ResolveCorrelationId(HttpContext httpContext)
