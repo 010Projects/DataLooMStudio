@@ -83,6 +83,7 @@ public sealed class PostgresOutboxDispatchStore(NpgsqlDataSource dataSource) : I
             command.Parameters.AddWithValue(parameter);
         }
 
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is bool succeeded && succeeded;
     }
 }
