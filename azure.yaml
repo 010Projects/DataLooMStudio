@@ -16,6 +16,13 @@ services:
     docker:
       path: ./src/Web/DataLooMStudio.Web/Dockerfile
       context: ./src/Web/DataLooMStudio.Web
+  worker:
+    project: ./src/Dls.Worker/DataLooMStudio.Dls.Worker
+    language: dotnet
+    host: containerapp
+    docker:
+      path: ./src/Dls.Worker/DataLooMStudio.Dls.Worker/Dockerfile
+      context: .
 infra:
   provider: bicep
   path: ./infra

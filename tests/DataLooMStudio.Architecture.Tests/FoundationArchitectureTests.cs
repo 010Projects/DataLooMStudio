@@ -1230,6 +1230,143 @@ public sealed class FoundationArchitectureTests
     }
 
     [Fact]
+    public void Production_configuration_validation_must_be_registered_for_runtime_hosts()
+    {
+        var apiProgram = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Api",
+            "DataLooMStudio.Api",
+            "Program.cs"));
+        var workerProgram = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Dls.Worker",
+            "DataLooMStudio.Dls.Worker",
+            "Program.cs"));
+
+        Assert.Contains("ProductionConfigurationValidator.ValidateAndThrow", apiProgram, StringComparison.Ordinal);
+        Assert.Contains("requireHttpSurface: true", apiProgram, StringComparison.Ordinal);
+        Assert.Contains("ProductionConfigurationValidator.ResolveAllowedOrigins", apiProgram, StringComparison.Ordinal);
+        Assert.Contains("ProductionConfigurationValidator.ValidateAndThrow", workerProgram, StringComparison.Ordinal);
+        Assert.Contains("requireWorkerIdentity: true", workerProgram, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Worker_deployment_must_be_modelled_without_public_ingress_or_physical_disposal()
+    {
+        var bicep = File.ReadAllText(Path.Combine(RepositoryRoot, "infra", "main.bicep"));
+        var azureYaml = File.ReadAllText(Path.Combine(RepositoryRoot, "azure.yaml"));
+        var workerBlock = ExtractBetween(bicep, "resource workerApp", "resource webApp");
+
+        Assert.Contains("param workerContainerImage string", bicep, StringComparison.Ordinal);
+        Assert.Contains("worker:", azureYaml, StringComparison.Ordinal);
+        Assert.Contains("src/Dls.Worker/DataLooMStudio.Dls.Worker/Dockerfile", azureYaml, StringComparison.Ordinal);
+        Assert.Contains("DataLooM__WorkerIdentitySubject", workerBlock, StringComparison.Ordinal);
+        Assert.Contains("workerManagedIdentity", workerBlock, StringComparison.Ordinal);
+        Assert.Contains("minReplicas: environment == 'prod' ? 1 : 0", workerBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("ingress", workerBlock, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DeleteBlob", workerBlock, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("EvidencePhysicallyDeleted", workerBlock, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("storage-blob-data-reader", bicep, StringComparison.Ordinal);
+        Assert.DoesNotContain("workerManagedIdentity.id, 'storage-blob-data-contributor'", bicep, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Runtime_containers_must_be_hardened_for_non_root_execution()
+    {
+        var apiDockerfile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Api",
+            "DataLooMStudio.Api",
+            "Dockerfile"));
+        var workerDockerfile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Dls.Worker",
+            "DataLooMStudio.Dls.Worker",
+            "Dockerfile"));
+        var migrateDockerfile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Dls.Migrate",
+            "DataLooMStudio.Dls.Migrate",
+            "Dockerfile"));
+        var webDockerfile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Web",
+            "DataLooMStudio.Web",
+            "Dockerfile"));
+
+        Assert.Contains("USER $APP_UID", apiDockerfile, StringComparison.Ordinal);
+        Assert.Contains("USER $APP_UID", workerDockerfile, StringComparison.Ordinal);
+        Assert.Contains("USER $APP_UID", migrateDockerfile, StringComparison.Ordinal);
+        Assert.Contains(
+            "nginxinc/nginx-unprivileged:1.30.4-alpine3.24@sha256:93722936b82ec8a1178d48448e619226680d2de3706a1640800e186cd5fa7fd3",
+            webDockerfile,
+            StringComparison.Ordinal);
+        Assert.Contains("apk add --no-cache --upgrade 'libcrypto3>=3.5.8-r0' 'libssl3>=3.5.8-r0'", webDockerfile, StringComparison.Ordinal);
+        Assert.Contains("USER 101", webDockerfile, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Production_hardening_ci_must_include_required_gates()
+    {
+        var workflow = File.ReadAllText(Path.Combine(RepositoryRoot, ".github", "workflows", "ci.yml"));
+
+        Assert.Contains("dotnet format", workflow, StringComparison.Ordinal);
+        Assert.Contains("./scripts/secret-scan.ps1", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet list DataLooMStudio.slnx package --vulnerable --include-transitive", workflow, StringComparison.Ordinal);
+        Assert.Contains("npm audit --audit-level=high", workflow, StringComparison.Ordinal);
+        Assert.Contains("az bicep build --file infra/main.bicep", workflow, StringComparison.Ordinal);
+        Assert.Contains("git diff --check", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet tool restore", workflow, StringComparison.Ordinal);
+        Assert.Contains("dotnet tool run dotnet-ef migrations script --idempotent", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker build --file src/Api/DataLooMStudio.Api/Dockerfile", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker build --file src/Dls.Worker/DataLooMStudio.Dls.Worker/Dockerfile", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker build --file src/Dls.Migrate/DataLooMStudio.Dls.Migrate/Dockerfile", workflow, StringComparison.Ordinal);
+        Assert.Contains("docker build --file src/Web/DataLooMStudio.Web/Dockerfile", workflow, StringComparison.Ordinal);
+        Assert.Contains(
+            "aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains("version: v0.72.0", workflow, StringComparison.Ordinal);
+        Assert.Equal(
+            4,
+            workflow.Split(
+                "aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, workflow.Split("skip-setup-trivy: true", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, workflow.Split("severity: HIGH,CRITICAL", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, workflow.Split("ignore-unfixed: true", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, workflow.Split("exit-code: '1'", StringSplitOptions.None).Length - 1);
+        Assert.Contains("image-ref: dataloomstudio-api:ci", workflow, StringComparison.Ordinal);
+        Assert.Contains("image-ref: dataloomstudio-worker:ci", workflow, StringComparison.Ordinal);
+        Assert.Contains("image-ref: dataloomstudio-migrate:ci", workflow, StringComparison.Ordinal);
+        Assert.Contains("image-ref: dataloomstudio-web:ci", workflow, StringComparison.Ordinal);
+        Assert.Contains("artifacts/sbom", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/upload-artifact", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Production_operational_controls_must_have_durable_runbook_evidence()
+    {
+        var expectedDocuments = new[]
+        {
+            Path.Combine(RepositoryRoot, "docs", "operations", "migration-operations.md"),
+            Path.Combine(RepositoryRoot, "docs", "operations", "backup-restore-readiness.md"),
+            Path.Combine(RepositoryRoot, "docs", "operations", "observability-baseline.md"),
+            Path.Combine(RepositoryRoot, "docs", "operations", "production-runbooks.md"),
+            Path.Combine(RepositoryRoot, "docs", "security", "supply-chain-baseline.md"),
+            Path.Combine(RepositoryRoot, "docs", "engineering-checkpoints", "DLS-ENG-PRODUCTION-HARDENING-001.md")
+        };
+
+        Assert.All(expectedDocuments, document => Assert.True(File.Exists(document), RelativeToRepository(document)));
+    }
+
+    [Fact]
     public void Historical_DataLooM_repository_assets_must_not_be_present()
     {
         var forbiddenTokens = new[]
@@ -1368,6 +1505,15 @@ public sealed class FoundationArchitectureTests
             .Any(segment =>
                 segment.Equals("bin", StringComparison.OrdinalIgnoreCase)
                 || segment.Equals("obj", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string ExtractBetween(string source, string startToken, string endToken)
+    {
+        var start = source.IndexOf(startToken, StringComparison.Ordinal);
+        Assert.True(start >= 0, startToken);
+        var end = source.IndexOf(endToken, start, StringComparison.Ordinal);
+        Assert.True(end > start, endToken);
+        return source[start..end];
     }
 
     private static string RelativeToRepository(string path)

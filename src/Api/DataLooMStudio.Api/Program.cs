@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 
 using DataLooMStudio.Api.Endpoints;
 using DataLooMStudio.Api.Middleware;
+using DataLooMStudio.Infrastructure.Configuration;
 using DataLooMStudio.Infrastructure.DependencyInjection;
 using DataLooMStudio.Runtime.DependencyInjection;
 using DataLooMStudio.Runtime.Persistence;
@@ -14,10 +15,32 @@ using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
+ProductionConfigurationValidator.ValidateAndThrow(
+    builder.Configuration,
+    builder.Environment.EnvironmentName,
+    "DataLooMStudio.Api",
+    requireHttpSurface: true,
+    requireWorkerIdentity: false);
+
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
+
+var allowedOrigins = ProductionConfigurationValidator.ResolveAllowedOrigins(builder.Configuration);
+if (allowedOrigins.Length > 0)
+{
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("DataLooMAllowedOrigins", policy =>
+        {
+            policy
+                .WithOrigins(allowedOrigins)
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        });
+    });
+}
 
 builder.Services.AddDataLooMModules();
 builder.Services.AddDataLooMInfrastructure(builder.Configuration);
@@ -65,6 +88,11 @@ var app = builder.Build();
 
 app.UseAuthentication();
 app.UseMiddleware<TenantWorkspaceContextMiddleware>();
+if (allowedOrigins.Length > 0)
+{
+    app.UseCors("DataLooMAllowedOrigins");
+}
+
 app.UseAuthorization();
 
 app.MapFoundationEndpoints();

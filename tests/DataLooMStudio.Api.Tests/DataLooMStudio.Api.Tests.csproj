@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Api\DataLooMStudio.Api\DataLooMStudio.Api.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\DataLooMStudio.Infrastructure\DataLooMStudio.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\BuildingBlocks\DataLooMStudio.SharedKernel\DataLooMStudio.SharedKernel.csproj" />
   </ItemGroup>
 

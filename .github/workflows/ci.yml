@@ -41,8 +41,18 @@ jobs:
       - name: Test backend
         run: dotnet test DataLooMStudio.slnx --configuration Release --no-build --logger trx
 
+      - name: Verify backend formatting
+        run: dotnet format DataLooMStudio.slnx --verify-no-changes --verbosity minimal
+
       - name: Audit backend packages
         run: dotnet list DataLooMStudio.slnx package --vulnerable --include-transitive
+
+      - name: Secret scan
+        shell: pwsh
+        run: ./scripts/secret-scan.ps1
+
+      - name: Check repository diff hygiene
+        run: git diff --check
 
       - name: Install frontend
         working-directory: src/Web/DataLooMStudio.Web
@@ -56,7 +66,97 @@ jobs:
         working-directory: src/Web/DataLooMStudio.Web
         run: npm audit --audit-level=high
 
+      - name: Validate migration artifact generation
+        run: |
+          dotnet tool restore
+          mkdir -p artifacts/migrations
+          dotnet tool run dotnet-ef migrations script --idempotent \
+            --project src/Runtime/DataLooMStudio.Runtime.Persistence/DataLooMStudio.Runtime.Persistence.csproj \
+            --startup-project src/Dls.Migrate/DataLooMStudio.Dls.Migrate/DataLooMStudio.Dls.Migrate.csproj \
+            --context DataLooMDbContext \
+            --output artifacts/migrations/dataloomstudio.sql
+
       - name: Build Bicep
         uses: azure/cli@v2
         with:
           inlineScript: az bicep build --file infra/main.bicep
+
+      - name: Build API container
+        run: docker build --file src/Api/DataLooMStudio.Api/Dockerfile --tag dataloomstudio-api:ci .
+
+      - name: Build worker container
+        run: docker build --file src/Dls.Worker/DataLooMStudio.Dls.Worker/Dockerfile --tag dataloomstudio-worker:ci .
+
+      - name: Build migration container
+        run: docker build --file src/Dls.Migrate/DataLooMStudio.Dls.Migrate/Dockerfile --tag dataloomstudio-migrate:ci .
+
+      - name: Build web container
+        run: docker build --file src/Web/DataLooMStudio.Web/Dockerfile --tag dataloomstudio-web:ci src/Web/DataLooMStudio.Web
+
+      # v0.3.1 installs the reviewed v0.72.0 release once for all image scans.
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.72.0
+          cache: true
+
+      - name: Verify Trivy installation
+        run: trivy --version
+
+      - name: Scan API container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: dataloomstudio-api:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+
+      - name: Scan worker container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: dataloomstudio-worker:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+
+      - name: Scan migration container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: dataloomstudio-migrate:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+
+      - name: Scan web container
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: dataloomstudio-web:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+
+      - name: Generate supply-chain evidence
+        run: |
+          mkdir -p artifacts/sbom
+          dotnet list DataLooMStudio.slnx package --include-transitive > artifacts/sbom/dotnet-packages.txt
+          npm --prefix src/Web/DataLooMStudio.Web ls --all --json > artifacts/sbom/npm-dependencies.json
+          docker image inspect dataloomstudio-api:ci dataloomstudio-worker:ci dataloomstudio-migrate:ci dataloomstudio-web:ci > artifacts/sbom/container-images.json
+          trivy --version > artifacts/sbom/trivy-version.txt
+
+      - name: Upload validation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-hardening-validation
+          path: artifacts

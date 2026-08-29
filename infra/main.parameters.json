@@ -19,6 +19,27 @@
     },
     "webContainerImage": {
       "value": "ghcr.io/010projects/dataloomstudio-web:placeholder"
+    },
+    "workerContainerImage": {
+      "value": "ghcr.io/010projects/dataloomstudio-worker:placeholder"
+    },
+    "entraAuthority": {
+      "value": ""
+    },
+    "entraClientId": {
+      "value": ""
+    },
+    "entraAudience": {
+      "value": ""
+    },
+    "allowedHosts": {
+      "value": "localhost;127.0.0.1"
+    },
+    "allowedOriginsCsv": {
+      "value": ""
+    },
+    "otelExporterOtlpEndpoint": {
+      "value": ""
     }
   }
 }
