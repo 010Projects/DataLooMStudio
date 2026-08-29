@@ -46,3 +46,4 @@ if ($findings.Count -gt 0) {
 }
 
 Write-Host 'Secret scan completed without findings.'
+exit 0
