@@ -1307,6 +1307,8 @@ public sealed class FoundationArchitectureTests
             "nginxinc/nginx-unprivileged:1.30.4-alpine3.24@sha256:93722936b82ec8a1178d48448e619226680d2de3706a1640800e186cd5fa7fd3",
             webDockerfile,
             StringComparison.Ordinal);
+        Assert.Contains("apk upgrade --no-cache 'libcrypto3>=3.5.8-r0' 'libssl3>=3.5.8-r0'", webDockerfile, StringComparison.Ordinal);
+        Assert.Contains("USER 101", webDockerfile, StringComparison.Ordinal);
     }
 
     [Fact]
