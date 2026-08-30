@@ -43,6 +43,12 @@ namespace DataLooMStudio.Runtime.Persistence.Migrations
                     add constraint ck_evidence_content_verifications_storage_version
                     check (length("StorageVersionId") > 0 and length("StorageEntityTag") > 0);
 
+                alter table evidence.evidence_upload_allocations
+                    drop constraint ck_evidence_upload_allocations_write_only;
+                alter table evidence.evidence_upload_allocations
+                    add constraint ck_evidence_upload_allocations_create_only
+                    check ("PermittedOperation" = 'Create');
+
                 create or replace function foundation.reject_immutable_evidence_mutation()
                 returns trigger
                 language plpgsql
@@ -137,6 +143,12 @@ namespace DataLooMStudio.Runtime.Persistence.Migrations
         {
             migrationBuilder.Sql(
                 """
+                alter table evidence.evidence_upload_allocations
+                    drop constraint if exists ck_evidence_upload_allocations_create_only;
+                alter table evidence.evidence_upload_allocations
+                    add constraint ck_evidence_upload_allocations_write_only
+                    check ("PermittedOperation" = 'Write');
+
                 drop trigger if exists protect_disposal_request_evidence on retention.disposal_records;
                 drop trigger if exists protect_authority_elevation_evidence on identity_access.product_authority_elevations;
                 drop trigger if exists protect_permission_assignment_evidence on identity_access.product_permission_assignments;

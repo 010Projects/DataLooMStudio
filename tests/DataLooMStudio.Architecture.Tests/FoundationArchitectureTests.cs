@@ -92,6 +92,8 @@ public sealed class FoundationArchitectureTests
         Assert.Contains("protect_governance_evidence_fields", migration, StringComparison.Ordinal);
         Assert.Contains("protect_disposal_request_evidence", migration, StringComparison.Ordinal);
         Assert.Contains("protect_permission_assignment_evidence", migration, StringComparison.Ordinal);
+        Assert.Contains("ck_evidence_upload_allocations_create_only", migration, StringComparison.Ordinal);
+        Assert.Contains("check (\"PermittedOperation\" = 'Create')", migration, StringComparison.Ordinal);
         Assert.Contains("set search_path = pg_catalog", migration, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("revoke all on function foundation.reject_immutable_evidence_mutation() from public", migration, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("revoke all on function foundation.protect_governance_evidence_fields() from public", migration, StringComparison.OrdinalIgnoreCase);
