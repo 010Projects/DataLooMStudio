@@ -16,6 +16,7 @@ public sealed class TenantWorkspaceContextMiddleware(
     private static readonly Meter Meter = new("DataLooMStudio.Api");
     private static readonly Counter<long> AuthorizationDenials = Meter.CreateCounter<long>("dls.authorization.denials");
     private static readonly Histogram<double> RequestDuration = Meter.CreateHistogram<double>("dls.api.request.duration", "ms");
+    private static readonly Counter<long> Requests = Meter.CreateCounter<long>("dls.api.requests");
     private const string CorrelationHeader = "X-Correlation-Id";
     private const string WorkspaceHeader = "X-Workspace-Id";
 
@@ -30,45 +31,67 @@ public sealed class TenantWorkspaceContextMiddleware(
         var requiresWorkspaceScope = endpoint?.Metadata.GetMetadata<RequiresWorkspaceScopeMetadata>() is not null;
         var isAuthenticated = httpContext.User.Identity?.IsAuthenticated == true;
         RequestContext? requestContext = null;
+        Exception? pipelineException = null;
 
-        if (requiresWorkspaceScope
-            && isAuthenticated
-            && !TryCreateRequestContext(httpContext, correlationId, out requestContext))
+        try
         {
-            logger.LogWarning(
-                "Rejected workspace-scoped request without complete tenant/workspace context. Path: {Path}, CorrelationId: {CorrelationId}",
-                httpContext.Request.Path,
-                correlationId);
-
-            httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
-            AuthorizationDenials.Add(1, new KeyValuePair<string, object?>("reason", "context_missing"));
-            await httpContext.Response.WriteAsJsonAsync(new
+            if (requiresWorkspaceScope
+                && isAuthenticated
+                && !TryCreateRequestContext(httpContext, correlationId, out requestContext))
             {
-                error = "tenant_workspace_context_required",
-                correlationId
-            });
-            return;
-        }
+                logger.LogWarning(
+                    "Rejected workspace-scoped request without complete tenant/workspace context. Path: {Path}, CorrelationId: {CorrelationId}",
+                    httpContext.Request.Path,
+                    correlationId);
 
-        if (requiresWorkspaceScope || !allowsAnonymous)
+                httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+                AuthorizationDenials.Add(1, new KeyValuePair<string, object?>("reason", "context_missing"));
+                await httpContext.Response.WriteAsJsonAsync(new
+                {
+                    error = "tenant_workspace_context_required",
+                    correlationId
+                });
+                return;
+            }
+
+            if (requiresWorkspaceScope || !allowsAnonymous)
+            {
+                contextAccessor.Current = requestContext;
+            }
+
+            using (logger.BeginScope(new Dictionary<string, object?> { ["CorrelationId"] = correlationId }))
+            {
+                await next(httpContext);
+            }
+        }
+        catch (Exception exception)
         {
-            contextAccessor.Current = requestContext;
+            pipelineException = exception;
+            throw;
         }
-
-        using (logger.BeginScope(new Dictionary<string, object?> { ["CorrelationId"] = correlationId }))
+        finally
         {
-            await next(httpContext);
-        }
+            var statusCode = pipelineException is null
+                ? httpContext.Response.StatusCode
+                : StatusCodes.Status500InternalServerError;
 
-        if (httpContext.Response.StatusCode is StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden)
-        {
-            AuthorizationDenials.Add(1, new KeyValuePair<string, object?>("status", httpContext.Response.StatusCode));
-        }
+            if (statusCode is StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden)
+            {
+                AuthorizationDenials.Add(1, new KeyValuePair<string, object?>("status", statusCode));
+            }
 
-        RequestDuration.Record(
-            Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            new KeyValuePair<string, object?>("http.method", httpContext.Request.Method),
-            new KeyValuePair<string, object?>("http.status_code", httpContext.Response.StatusCode));
+            var route = (endpoint as RouteEndpoint)?.RoutePattern.RawText ?? "unmatched";
+            RequestDuration.Record(
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                new KeyValuePair<string, object?>("http.route", route),
+                new KeyValuePair<string, object?>("http.method", httpContext.Request.Method),
+                new KeyValuePair<string, object?>("http.status_code", statusCode));
+            Requests.Add(
+                1,
+                new KeyValuePair<string, object?>("http.route", route),
+                new KeyValuePair<string, object?>("http.method", httpContext.Request.Method),
+                new KeyValuePair<string, object?>("http.status_code", statusCode));
+        }
     }
 
     private static string ResolveCorrelationId(HttpContext httpContext)

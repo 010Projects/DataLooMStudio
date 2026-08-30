@@ -11,8 +11,15 @@
     "deployMigrationJob": {
       "value": false
     },
-    "migrationSuccessEvidence": {
-      "value": ""
+    "migrationVerification": {
+      "value": {
+        "executionResourceId": "",
+        "executionName": "",
+        "status": "",
+        "imageDigest": "",
+        "lastAppliedMigration": "",
+        "evidenceSha256": ""
+      }
     },
     "postgresAdministratorLogin": {
       "value": "dlsadmin"
@@ -33,6 +40,9 @@
       "value": "ghcr.io/010projects/dataloomstudio-migrate:placeholder"
     },
     "entraAuthority": {
+      "value": ""
+    },
+    "entraTenantId": {
       "value": ""
     },
     "entraClientId": {

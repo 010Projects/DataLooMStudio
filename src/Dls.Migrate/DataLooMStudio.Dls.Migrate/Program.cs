@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using DataLooMStudio.Dls.Migrate;
 using DataLooMStudio.Infrastructure.Configuration;
 using DataLooMStudio.Infrastructure.DependencyInjection;
@@ -60,5 +62,14 @@ if (command.BootstrapRuntimeRoles)
 Console.WriteLine(result.AppliedMigrationCount == 0
     ? "Database is already up to date."
     : $"Applied {result.AppliedMigrationCount} migration(s).");
+Console.WriteLine($"DLS_MIGRATION_RESULT:{JsonSerializer.Serialize(new
+{
+    schemaVersion = 1,
+    status = "Succeeded",
+    appliedMigrationCount = result.AppliedMigrationCount,
+    lastAppliedMigration = result.LastAppliedMigration,
+    imageReference = Environment.GetEnvironmentVariable("DLS_MIGRATION_IMAGE_REFERENCE") ?? "unavailable",
+    completedAt = DateTimeOffset.UtcNow
+})}");
 
 return MigrationExitCodes.Success;

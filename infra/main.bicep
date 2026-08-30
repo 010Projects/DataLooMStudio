@@ -19,8 +19,15 @@ param deployApplications bool = false
 @description('Creates the manually invoked migration job only after its immutable image is published.')
 param deployMigrationJob bool = false
 
-@description('Exact succeeded migration-job execution resource ID required before application resources can be created.')
-param migrationSuccessEvidence string = ''
+@description('Live-verified migration execution evidence produced by scripts/Confirm-TestMigrationExecution.ps1.')
+param migrationVerification object = {
+  executionResourceId: ''
+  executionName: ''
+  status: ''
+  imageDigest: ''
+  lastAppliedMigration: ''
+  evidenceSha256: ''
+}
 
 param location string = resourceGroup().location
 
@@ -51,6 +58,9 @@ param postgresAdministratorPassword string = ''
 
 @description('Microsoft Entra authority used by API token validation. Required by production startup validation.')
 param entraAuthority string = ''
+
+@description('Single approved Microsoft Entra tenant GUID used for issuer and actor-tenant validation.')
+param entraTenantId string = ''
 
 @description('Microsoft Entra client/application id used by API token validation. Required by production startup validation when audience is not supplied.')
 param entraClientId string = ''
@@ -107,7 +117,9 @@ var workerIdentitySubject = 'workload:dls-worker'
 var apiDatabaseRoleName = apiIdentityName
 var workerDatabaseRoleName = workerIdentityName
 var migrationDatabaseRoleName = migrationIdentityName
-var applicationDeploymentEnabled = deployApplications && deployMigrationJob && !empty(migrationSuccessEvidence)
+var expectedMigrationExecutionResourceId = resourceId('Microsoft.App/jobs/executions', migrationJobName, migrationVerification.executionName)
+var migrationVerificationValid = migrationVerification.status == 'Succeeded' && migrationVerification.imageDigest == migrationContainerImage && !empty(migrationVerification.executionName) && toLower(migrationVerification.executionResourceId) == toLower(expectedMigrationExecutionResourceId) && !empty(migrationVerification.lastAppliedMigration) && startsWith(migrationVerification.evidenceSha256, 'sha256:') && length(migrationVerification.evidenceSha256) == 71
+var applicationDeploymentEnabled = deployApplications && deployMigrationJob && migrationVerificationValid
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   name: '${environmentName}-vnet'
@@ -517,7 +529,8 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = if (applicationDeploy
   name: apiName
   location: location
   tags: union(tags, {
-    migrationEvidence: migrationSuccessEvidence
+    migrationEvidence: migrationVerification.evidenceSha256
+    migrationExecution: migrationVerification.executionName
   })
   identity: {
     type: 'UserAssigned'
@@ -582,6 +595,10 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = if (applicationDeploy
             {
               name: 'EntraId__Authority'
               value: entraAuthority
+            }
+            {
+              name: 'EntraId__TenantId'
+              value: entraTenantId
             }
             {
               name: 'EntraId__ClientId'
@@ -676,7 +693,8 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = if (applicationDep
   name: workerName
   location: location
   tags: union(tags, {
-    migrationEvidence: migrationSuccessEvidence
+    migrationEvidence: migrationVerification.evidenceSha256
+    migrationExecution: migrationVerification.executionName
   })
   identity: {
     type: 'UserAssigned'
@@ -922,6 +940,10 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = if (deployMigrationJob) 
               value: workerManagedIdentity.properties.principalId
             }
             {
+              name: 'DLS_MIGRATION_IMAGE_REFERENCE'
+              value: migrationContainerImage
+            }
+            {
               name: 'OTEL_EXPORTER_OTLP_ENDPOINT'
               value: otelExporterOtlpEndpoint
             }
@@ -944,7 +966,8 @@ resource webApp 'Microsoft.App/containerApps@2024-03-01' = if (applicationDeploy
   name: webName
   location: location
   tags: union(tags, {
-    migrationEvidence: migrationSuccessEvidence
+    migrationEvidence: migrationVerification.evidenceSha256
+    migrationExecution: migrationVerification.executionName
   })
   identity: {
     type: 'UserAssigned'
@@ -977,6 +1000,10 @@ resource webApp 'Microsoft.App/containerApps@2024-03-01' = if (applicationDeploy
             {
               name: 'DLS_ENTRA_AUTHORITY'
               value: entraAuthority
+            }
+            {
+              name: 'DLS_ENTRA_TENANT_ID'
+              value: entraTenantId
             }
             {
               name: 'DLS_SPA_CLIENT_ID'
@@ -1019,13 +1046,32 @@ resource webApp 'Microsoft.App/containerApps@2024-03-01' = if (applicationDeploy
   }
 }
 
-resource apiStorageBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storage.id, apiManagedIdentity.id, 'storage-blob-data-contributor')
+module apiEvidenceStorageRoles './modules/api-evidence-storage-roles.bicep' = {
+  name: 'api-evidence-storage-roles'
+  scope: subscription()
+  params: {
+    assignableScope: resourceGroup().id
+    roleNamePrefix: environmentName
+  }
+}
+
+resource apiBlobDelegationKeyIssuer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, apiManagedIdentity.id, 'blob-delegation-key-issuer')
   scope: storage
   properties: {
     principalId: apiManagedIdentity.properties.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+    roleDefinitionId: apiEvidenceStorageRoles.outputs.delegationRoleDefinitionId
+  }
+}
+
+resource apiEvidenceBlobData 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(evidenceContainer.id, apiManagedIdentity.id, 'evidence-blob-data-non-delete')
+  scope: evidenceContainer
+  properties: {
+    principalId: apiManagedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: apiEvidenceStorageRoles.outputs.evidenceDataRoleDefinitionId
   }
 }
 

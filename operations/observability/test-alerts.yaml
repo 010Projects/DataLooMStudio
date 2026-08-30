@@ -7,12 +7,14 @@ defaults:
 rules:
   - name: api-readiness-unavailable
     severity: 1
-    signal: readyz_success_ratio
-    operator: LessThan
-    threshold: 0.95
+    signal: dls.api.requests
+    filter: http.route == /readyz AND http.status_code >= 500
+    operator: GreaterThan
+    threshold: 0
   - name: api-server-error-rate
     severity: 2
-    signal: http_5xx_ratio
+    signal: dls.api.requests
+    filter: http.status_code >= 500
     operator: GreaterThan
     threshold: 0.05
   - name: api-p95-latency
@@ -37,12 +39,24 @@ rules:
     threshold: 50
   - name: malware-scan-failure
     severity: 2
-    logMatch: Evidence.ScanCompleted AND outcome != Clean
+    signal: dls.malware.scan.failures
+    operator: GreaterThan
+    threshold: 0
+  - name: evidence-quarantined
+    severity: 2
+    signal: dls.evidence.quarantined
     operator: GreaterThan
     threshold: 0
   - name: database-readiness-failure
     severity: 1
-    logMatch: postgresql AND HealthCheck AND Unhealthy
+    signal: dls.dependencies.failures
+    filter: dependency == postgresql
+    operator: GreaterThan
+    threshold: 0
+  - name: external-dependency-failure
+    severity: 2
+    signal: dls.dependencies.failures
+    filter: dependency IN [blob_storage, service_bus, malware_scanner, malware_scanner_identity]
     operator: GreaterThan
     threshold: 0
   - name: audit-persistence-failure

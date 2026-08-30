@@ -11,6 +11,7 @@ public sealed class AuditPersistenceTelemetryInterceptor : SaveChangesIntercepto
 {
     private static readonly Meter Meter = new("DataLooMStudio.Persistence");
     private static readonly Counter<long> Failures = Meter.CreateCounter<long>("dls.audit.persistence.failures");
+    private static readonly Counter<long> DependencyFailures = Meter.CreateCounter<long>("dls.dependencies.failures");
 
     public override void SaveChangesFailed(DbContextErrorEventData eventData)
     {
@@ -28,6 +29,11 @@ public sealed class AuditPersistenceTelemetryInterceptor : SaveChangesIntercepto
 
     private static void RecordIfAuditWasPending(DbContext? context)
     {
+        DependencyFailures.Add(
+            1,
+            new KeyValuePair<string, object?>("dependency", "postgresql"),
+            new KeyValuePair<string, object?>("operation", "save_changes"));
+
         if (context?.ChangeTracker.Entries<AuditEntry>()
             .Any(entry => entry.State is EntityState.Added or EntityState.Modified) == true)
         {

@@ -24,6 +24,36 @@ public sealed class RuntimeDatabaseRoleBootstrapper(
         "ai_governance"
     ];
 
+    private static readonly DatabaseTableGrant[] ApiTableGrants =
+    [
+        new("identity_access", "tenants", "select"),
+        new("identity_access", "product_actors", "select, insert, update"),
+        new("identity_access", "product_tenant_memberships", "select, insert, update"),
+        new("identity_access", "product_workspace_memberships", "select, insert, update"),
+        new("identity_access", "product_permission_assignments", "select, insert, update"),
+        new("identity_access", "product_authority_elevations", "select, insert, update"),
+        new("workspace_weave", "workspaces", "select"),
+        new("evidence", "evidence_records", "select, insert, update"),
+        new("evidence", "evidence_versions", "select, insert"),
+        new("evidence", "evidence_upload_allocations", "select, insert, update"),
+        new("evidence", "evidence_content_verifications", "select, insert"),
+        new("evidence", "evidence_review_requests", "select, insert, update"),
+        new("evidence", "evidence_reviewer_assignments", "select, insert, update"),
+        new("evidence", "evidence_candidate_decisions", "select, insert, update"),
+        new("audit_lineage", "audit_entries", "select, insert"),
+        new("audit_lineage", "lineage_relationships", "select, insert"),
+        new("retention", "retention_policies", "select, insert"),
+        new("retention", "legal_holds", "select, insert, update"),
+        new("retention", "legal_hold_release_requests", "select, insert, update"),
+        new("retention", "deletion_eligibility_evaluations", "select, insert"),
+        new("retention", "disposal_records", "select, insert, update"),
+        new("commercial", "capability_entitlements", "select"),
+        new("lifecycle", "lifecycle_records", "select, insert, update"),
+        new("workflow", "workflow_runs", "select, insert, update"),
+        new("ai_governance", "ai_governance_policies", "select"),
+        new("foundation", "outbox_messages", "select, insert")
+    ];
+
     public async Task EnsurePrincipalsAsync(CancellationToken cancellationToken)
     {
         var roles = ResolveRoles();
@@ -56,13 +86,17 @@ public sealed class RuntimeDatabaseRoleBootstrapper(
         await using var connection = await OpenConnectionAsync(databaseName, cancellationToken);
         await using var command = connection.CreateCommand();
 
-        var apiSchemaGrants = string.Join(
+        var apiSchemaResets = string.Join(
             Environment.NewLine,
-            ApiSchemas.Select(schema => BuildApiSchemaGrant(schema, apiRole)));
+            ApiSchemas.Select(schema => BuildApiSchemaReset(schema, apiRole)));
+        var apiTableGrants = string.Join(
+            Environment.NewLine,
+            ApiTableGrants.Select(grant => BuildApiTableGrant(grant, apiRole)));
 
         command.CommandText = $"""
             grant connect on database {quotedDatabase} to {apiRole}, {workerRole};
-            {apiSchemaGrants}
+            {apiSchemaResets}
+            {apiTableGrants}
             do $bootstrap$
             begin
                 if not exists (select 1 from pg_roles where rolname = 'dls_outbox_executor') then
@@ -153,22 +187,27 @@ public sealed class RuntimeDatabaseRoleBootstrapper(
         return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
-    private static string BuildApiSchemaGrant(string schema, string role)
+    private static string BuildApiSchemaReset(string schema, string role)
     {
         var quotedSchema = QuoteIdentifier(schema);
         return $"""
+            revoke all on all tables in schema {quotedSchema} from {role};
+            revoke all on all sequences in schema {quotedSchema} from {role};
+            alter default privileges in schema {quotedSchema} revoke all on tables from {role};
+            alter default privileges in schema {quotedSchema} revoke all on sequences from {role};
             grant usage on schema {quotedSchema} to {role};
-            grant select, insert, update, delete on all tables in schema {quotedSchema} to {role};
-            grant usage, select on all sequences in schema {quotedSchema} to {role};
-            alter default privileges in schema {quotedSchema} grant select, insert, update, delete on tables to {role};
-            alter default privileges in schema {quotedSchema} grant usage, select on sequences to {role};
             """;
     }
+
+    private static string BuildApiTableGrant(DatabaseTableGrant grant, string role) =>
+        $"grant {grant.Permissions} on table {QuoteIdentifier(grant.Schema)}.{QuoteIdentifier(grant.Table)} to {role};";
 
     private static string QuoteIdentifier(string identifier) =>
         new NpgsqlCommandBuilder().QuoteIdentifier(identifier);
 
     private sealed record DatabaseRole(string Name, Guid ObjectId);
+
+    private sealed record DatabaseTableGrant(string Schema, string Table, string Permissions);
 
     private sealed record DatabaseRoles(DatabaseRole Api, DatabaseRole Worker) : IEnumerable<DatabaseRole>
     {

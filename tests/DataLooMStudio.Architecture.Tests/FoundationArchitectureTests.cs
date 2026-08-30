@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 using DataLooMStudio.Infrastructure.DependencyInjection;
@@ -42,9 +43,117 @@ public sealed class FoundationArchitectureTests
         Assert.Contains("triggerType: 'Manual'", bicep, StringComparison.Ordinal);
         Assert.Contains("replicaRetryLimit: 0", bicep, StringComparison.Ordinal);
         Assert.Contains("resource migrationJob 'Microsoft.App/jobs@2024-03-01' = if (deployMigrationJob)", bicep, StringComparison.Ordinal);
-        Assert.Contains("applicationDeploymentEnabled = deployApplications && deployMigrationJob && !empty(migrationSuccessEvidence)", bicep, StringComparison.Ordinal);
+        Assert.Contains("applicationDeploymentEnabled = deployApplications && deployMigrationJob && migrationVerificationValid", bicep, StringComparison.Ordinal);
         Assert.Contains("if (applicationDeploymentEnabled)", bicep, StringComparison.Ordinal);
         Assert.DoesNotContain("secretRef: 'postgres-connection'", bicep, StringComparison.Ordinal);
+
+        var verificationScript = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "scripts",
+            "Confirm-TestMigrationExecution.ps1"));
+        Assert.Contains("'containerapp', 'job', 'execution', 'show'", verificationScript, StringComparison.Ordinal);
+        Assert.Contains("'containerapp', 'job', 'logs', 'show'", verificationScript, StringComparison.Ordinal);
+        Assert.Contains("& az @executionArguments", verificationScript, StringComparison.Ordinal);
+        Assert.Contains("& az @logArguments", verificationScript, StringComparison.Ordinal);
+        Assert.Contains("DLS_MIGRATION_RESULT:", verificationScript, StringComparison.Ordinal);
+        Assert.Contains("ExpectedImageReference", verificationScript, StringComparison.Ordinal);
+        Assert.Contains("ExpectedLastAppliedMigration", verificationScript, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Evidence_content_is_bound_to_an_immutable_blob_version_before_scanning()
+    {
+        var infrastructureRoot = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "BuildingBlocks",
+            "DataLooMStudio.Infrastructure");
+        var storeContract = File.ReadAllText(Path.Combine(infrastructureRoot, "Storage", "IEvidenceObjectStore.cs"));
+        var azureStore = File.ReadAllText(Path.Combine(infrastructureRoot, "Storage", "AzureEvidenceObjectStore.cs"));
+        var contentService = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Runtime",
+            "DataLooMStudio.Runtime.Persistence",
+            "Evidence",
+            "EvidenceContentService.cs"));
+        var migration = File.ReadAllText(Directory.GetFiles(
+            Path.Combine(RepositoryRoot, "src", "Runtime", "DataLooMStudio.Runtime.Persistence", "Migrations"),
+            "*SecurityRemediationEvidenceImmutability.cs").Single());
+
+        Assert.Contains("SealAsync", storeContract, StringComparison.Ordinal);
+        Assert.Contains("StorageVersionId", contentService, StringComparison.Ordinal);
+        Assert.Contains("StorageEntityTag", contentService, StringComparison.Ordinal);
+        Assert.Contains("blobClient.WithVersion(versionId)", azureStore, StringComparison.Ordinal);
+        Assert.Contains("BlobSasPermissions.Create", azureStore, StringComparison.Ordinal);
+        Assert.DoesNotContain("BlobSasPermissions.Write", azureStore, StringComparison.Ordinal);
+        Assert.DoesNotContain("DeleteAsync", azureStore, StringComparison.Ordinal);
+        Assert.Contains("reject_immutable_evidence_mutation", migration, StringComparison.Ordinal);
+        Assert.Contains("protect_governance_evidence_fields", migration, StringComparison.Ordinal);
+        Assert.Contains("protect_disposal_request_evidence", migration, StringComparison.Ordinal);
+        Assert.Contains("protect_permission_assignment_evidence", migration, StringComparison.Ordinal);
+        Assert.Contains("set search_path = pg_catalog", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("revoke all on function foundation.reject_immutable_evidence_mutation() from public", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("revoke all on function foundation.protect_governance_evidence_fields() from public", migration, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Runtime_data_authority_is_explicit_non_destructive_and_not_default_inherited()
+    {
+        var bootstrapper = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Dls.Migrate",
+            "DataLooMStudio.Dls.Migrate",
+            "RuntimeDatabaseRoleBootstrapper.cs"));
+        var storageRoles = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "infra",
+            "modules",
+            "api-evidence-storage-roles.bicep"));
+        var bicep = File.ReadAllText(Path.Combine(RepositoryRoot, "infra", "main.bicep"));
+
+        Assert.Contains("ApiTableGrants", bootstrapper, StringComparison.Ordinal);
+        Assert.Contains("alter default privileges", bootstrapper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("grant select, insert, update, delete", bootstrapper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("grant all", bootstrapper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Storage Blob Data Contributor", bicep, StringComparison.Ordinal);
+        Assert.DoesNotContain("ba92f5b4-2d11-453d-a403-e96b0029c9fe", bicep, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("containers/blobs/write", storageRoles, StringComparison.Ordinal);
+        Assert.Contains("containers/blobs/tags/write", storageRoles, StringComparison.Ordinal);
+        Assert.DoesNotContain("containers/blobs/delete", storageRoles, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Hardened_identity_contract_is_tenant_specific_and_revalidates_actor_claims()
+    {
+        var validator = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "BuildingBlocks",
+            "DataLooMStudio.Infrastructure",
+            "Configuration",
+            "ProductionConfigurationValidator.cs"));
+        var tokenValidator = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "BuildingBlocks",
+            "DataLooMStudio.Infrastructure",
+            "Configuration",
+            "EntraTokenIdentityValidator.cs"));
+        var apiProgram = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Api",
+            "DataLooMStudio.Api",
+            "Program.cs"));
+
+        Assert.Contains("login.microsoftonline.com", validator, StringComparison.Ordinal);
+        Assert.Contains("common", validator, StringComparison.Ordinal);
+        Assert.Contains("Authority tenant must match EntraId:TenantId", validator, StringComparison.Ordinal);
+        Assert.Contains("HasCanonicalActorClaims", apiProgram, StringComparison.Ordinal);
+        Assert.Contains("FindFirst(\"tid\")", tokenValidator, StringComparison.Ordinal);
+        Assert.Contains("FindFirst(\"oid\")", tokenValidator, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -128,6 +237,10 @@ public sealed class FoundationArchitectureTests
             RepositoryRoot, "operations", "observability", "test-dashboard.yaml"));
         var alerts = File.ReadAllText(Path.Combine(
             RepositoryRoot, "operations", "observability", "test-alerts.yaml"));
+        var source = string.Join(
+            Environment.NewLine,
+            Directory.GetFiles(Path.Combine(RepositoryRoot, "src"), "*.cs", SearchOption.AllDirectories)
+                .Select(File.ReadAllText));
 
         Assert.Contains("dls.api.request.duration.p95", dashboard, StringComparison.Ordinal);
         Assert.Contains("dls.outbox.backlog", dashboard, StringComparison.Ordinal);
@@ -135,6 +248,23 @@ public sealed class FoundationArchitectureTests
         Assert.Contains("dls.audit.persistence.failures", dashboard, StringComparison.Ordinal);
         Assert.Contains("malware-scan-failure", alerts, StringComparison.Ordinal);
         Assert.Contains("application-startup-failure", alerts, StringComparison.Ordinal);
+        foreach (var signal in new[]
+        {
+            "dls.api.requests",
+            "dls.api.request.duration",
+            "dls.outbox.published",
+            "dls.outbox.failed",
+            "dls.outbox.backlog",
+            "dls.authorization.denials",
+            "dls.audit.persistence.failures",
+            "dls.dependencies.failures",
+            "dls.malware.scan.completed",
+            "dls.malware.scan.failures",
+            "dls.evidence.quarantined"
+        })
+        {
+            Assert.Contains($"\"{signal}\"", source, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -1458,6 +1588,16 @@ public sealed class FoundationArchitectureTests
         Assert.Contains("image-ref: dataloomstudio-web:ci", workflow, StringComparison.Ordinal);
         Assert.Contains("artifacts/sbom", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/upload-artifact", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("security-events: write", workflow, StringComparison.Ordinal);
+
+        var actionReferences = workflow.Split(Environment.NewLine)
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("uses:", StringComparison.Ordinal))
+            .ToArray();
+        Assert.NotEmpty(actionReferences);
+        Assert.All(
+            actionReferences,
+            reference => Assert.Matches(new Regex("^uses: [^@\\s]+@[0-9a-f]{40}(?:\\s+#.*)?$"), reference));
     }
 
     [Fact]

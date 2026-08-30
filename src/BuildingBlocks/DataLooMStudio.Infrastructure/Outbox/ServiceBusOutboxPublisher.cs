@@ -2,6 +2,7 @@ using Azure.Core;
 using Azure.Messaging.ServiceBus;
 
 using DataLooMStudio.Infrastructure.Configuration;
+using DataLooMStudio.Infrastructure.Observability;
 
 using Microsoft.Extensions.Options;
 
@@ -18,27 +19,35 @@ public sealed class ServiceBusOutboxPublisher(
 
     public async Task PublishAsync(OutboxMessage message, CancellationToken cancellationToken)
     {
-        var current = options.CurrentValue;
-        if (string.IsNullOrWhiteSpace(current.ServiceBusFullyQualifiedNamespace))
+        try
         {
-            throw new InvalidOperationException("Service Bus namespace is not configured.");
+            var current = options.CurrentValue;
+            if (string.IsNullOrWhiteSpace(current.ServiceBusFullyQualifiedNamespace))
+            {
+                throw new InvalidOperationException("Service Bus namespace is not configured.");
+            }
+
+            var activeSender = await GetSenderAsync(current, cancellationToken);
+
+            var busMessage = new ServiceBusMessage(message.PayloadJson)
+            {
+                ContentType = "application/json",
+                CorrelationId = message.CorrelationId,
+                MessageId = message.Id.ToString("D"),
+                Subject = message.MessageType
+            };
+
+            busMessage.ApplicationProperties["tenantId"] = message.TenantId.ToString();
+            busMessage.ApplicationProperties["workspaceId"] = message.WorkspaceId.ToString();
+            busMessage.ApplicationProperties["owningModule"] = message.OwningModule;
+
+            await activeSender.SendMessageAsync(busMessage, cancellationToken);
         }
-
-        var activeSender = await GetSenderAsync(current, cancellationToken);
-
-        var busMessage = new ServiceBusMessage(message.PayloadJson)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ContentType = "application/json",
-            CorrelationId = message.CorrelationId,
-            MessageId = message.Id.ToString("D"),
-            Subject = message.MessageType
-        };
-
-        busMessage.ApplicationProperties["tenantId"] = message.TenantId.ToString();
-        busMessage.ApplicationProperties["workspaceId"] = message.WorkspaceId.ToString();
-        busMessage.ApplicationProperties["owningModule"] = message.OwningModule;
-
-        await activeSender.SendMessageAsync(busMessage, cancellationToken);
+            InfrastructureTelemetry.RecordDependencyFailure("service_bus", "publish");
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()

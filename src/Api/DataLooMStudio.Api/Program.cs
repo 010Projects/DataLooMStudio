@@ -5,11 +5,13 @@ using DataLooMStudio.Api.Health;
 using DataLooMStudio.Api.Middleware;
 using DataLooMStudio.Infrastructure.Configuration;
 using DataLooMStudio.Infrastructure.DependencyInjection;
+using DataLooMStudio.Infrastructure.Observability;
 using DataLooMStudio.Runtime.DependencyInjection;
 using DataLooMStudio.Runtime.Persistence;
 using DataLooMStudio.Runtime.Persistence.DependencyInjection;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -66,11 +68,43 @@ builder.Services
 
         if (!string.IsNullOrWhiteSpace(authority))
         {
-            options.Authority = authority;
+            options.Authority = authority.TrimEnd('/');
+            options.TokenValidationParameters.ValidateIssuer = true;
+            options.TokenValidationParameters.ValidIssuer = options.Authority;
         }
 
-        options.Audience = entraSection["Audience"] ?? entraSection["ClientId"];
+        var clientId = entraSection["ClientId"];
+        var audience = entraSection["Audience"] ?? clientId;
+        options.Audience = audience;
+        options.TokenValidationParameters.ValidateAudience = !string.IsNullOrWhiteSpace(audience);
+        options.TokenValidationParameters.ValidAudiences = new[]
+            {
+                audience,
+                clientId,
+                string.IsNullOrWhiteSpace(clientId) ? null : $"api://{clientId}"
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        options.TokenValidationParameters.NameClaimType = "oid";
         options.MapInboundClaims = false;
+
+        if (!string.IsNullOrWhiteSpace(tenantId))
+        {
+            options.Events = new JwtBearerEvents
+            {
+                OnTokenValidated = context =>
+                {
+                    if (context.Principal is null
+                        || !EntraTokenIdentityValidator.HasCanonicalActorClaims(context.Principal, tenantId))
+                    {
+                        context.Fail("The access token does not contain canonical tenant and actor identity claims.");
+                    }
+
+                    return Task.CompletedTask;
+                }
+            };
+        }
     });
 
 builder.Services.AddAuthorizationBuilder()
@@ -106,6 +140,7 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
         .AddMeter("DataLooMStudio.Api")
+        .AddMeter(InfrastructureTelemetry.MeterName)
         .AddMeter("DataLooMStudio.Persistence")
         .AddOtlpExporter());
 

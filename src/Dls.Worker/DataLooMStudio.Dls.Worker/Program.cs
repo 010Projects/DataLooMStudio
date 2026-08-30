@@ -2,6 +2,7 @@ using DataLooMStudio.Dls.Worker;
 using DataLooMStudio.Dls.Worker.Disposal;
 using DataLooMStudio.Infrastructure.Configuration;
 using DataLooMStudio.Infrastructure.DependencyInjection;
+using DataLooMStudio.Infrastructure.Observability;
 using DataLooMStudio.Runtime.DependencyInjection;
 using DataLooMStudio.Runtime.Persistence.DependencyInjection;
 
@@ -33,6 +34,7 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics => metrics
         .AddHttpClientInstrumentation()
         .AddMeter("DataLooMStudio.Worker")
+        .AddMeter(InfrastructureTelemetry.MeterName)
         .AddMeter("DataLooMStudio.Persistence")
         .AddOtlpExporter());
 builder.Services.AddHostedService<Worker>();

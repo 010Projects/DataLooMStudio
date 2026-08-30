@@ -53,7 +53,7 @@ Reference implementation conditions follow Azure PostgreSQL Entra and role/RLS g
 
 ## 4. Governed Migration Job
 
-The Container Apps migration job is manual, single-replica, non-ingress, non-retrying, separately identified, and digest-referenced. It runs `--apply --bootstrap-runtime-roles` using the migration identity. Infrastructure bootstrap defaults to no job and no applications. Application resources can be created only when the job is enabled and `migrationSuccessEvidence` contains the exact succeeded execution resource ID. Deployment operators must stop on any migration failure; no migration occurs in API startup.
+The Container Apps migration job is manual, single-replica, non-ingress, non-retrying, separately identified, and digest-referenced. It runs `--apply --bootstrap-runtime-roles` using the migration identity. Infrastructure bootstrap defaults to no job and no applications. Application resources can be created only when the job is enabled and `migrationVerification` proves a live succeeded execution, exact migration image, expected last migration, and deterministic evidence hash. `scripts/Confirm-TestMigrationExecution.ps1` obtains and validates that evidence from Azure before enabling application deployment. Deployment operators must stop on any migration failure; no migration occurs in API startup.
 
 ## 5. Images, Provenance, and Signing
 

@@ -20,6 +20,10 @@ public sealed class EvidenceContentVerification : IWorkspaceScoped
 
     public string StorageObjectReference { get; init; } = string.Empty;
 
+    public string StorageVersionId { get; init; } = string.Empty;
+
+    public string StorageEntityTag { get; init; } = string.Empty;
+
     public string ReceiptIdempotencyKey { get; init; } = string.Empty;
 
     public string ReceiptRequestHash { get; init; } = string.Empty;

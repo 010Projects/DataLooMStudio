@@ -385,6 +385,8 @@ public sealed class DataLooMDbContext(
         contentVerification.Property(verification => verification.EvidenceId).HasConversion(EvidenceIdConverter).ValueGeneratedNever();
         contentVerification.Property(verification => verification.VersionId).HasConversion(EvidenceVersionIdConverter).ValueGeneratedNever();
         contentVerification.Property(verification => verification.StorageObjectReference).HasMaxLength(1024).IsRequired();
+        contentVerification.Property(verification => verification.StorageVersionId).HasMaxLength(128).IsRequired();
+        contentVerification.Property(verification => verification.StorageEntityTag).HasMaxLength(128).IsRequired();
         contentVerification.Property(verification => verification.ReceiptIdempotencyKey).HasMaxLength(128).IsRequired();
         contentVerification.Property(verification => verification.ReceiptRequestHash).HasMaxLength(64).IsRequired();
         contentVerification.Property(verification => verification.ExpectedSha256Hash).HasMaxLength(64).IsRequired();

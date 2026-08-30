@@ -22,7 +22,7 @@ public sealed class EvidenceUploadAllocation : IWorkspaceScoped
 
     public DateTimeOffset ExpiresAt { get; init; }
 
-    public string PermittedOperation { get; init; } = "Write";
+    public string PermittedOperation { get; init; } = "Create";
 
     public long MaxSize { get; init; }
 

@@ -5,6 +5,7 @@ namespace DataLooMStudio.Infrastructure.Storage;
 public sealed class DevelopmentEvidenceObjectStore : IEvidenceObjectStore
 {
     private readonly ConcurrentDictionary<string, StoredEvidenceObject> objects = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, StoredEvidenceObject> sealedObjects = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> quarantineReasons = new(StringComparer.Ordinal);
 
     public Task<EvidenceUploadAuthority> AllocateUploadAsync(
@@ -29,7 +30,7 @@ public sealed class DevelopmentEvidenceObjectStore : IEvidenceObjectStore
             storageObjectReference,
             $"dls-dev-upload:{request.AllocationId:N}:{request.ExpiresAt.ToUnixTimeSeconds()}",
             request.ExpiresAt,
-            "Write",
+            "Create",
             request.MaxSize,
             request.MediaType));
     }
@@ -48,24 +49,38 @@ public sealed class DevelopmentEvidenceObjectStore : IEvidenceObjectStore
         string storageObjectReference,
         CancellationToken cancellationToken)
     {
-        return Task.FromResult(quarantineReasons.ContainsKey(storageObjectReference));
+        return Task.FromResult(
+            quarantineReasons.ContainsKey(storageObjectReference)
+            || quarantineReasons.Keys.Any(reference =>
+                reference.StartsWith($"{storageObjectReference}?versionid=", StringComparison.Ordinal)));
     }
 
-    public Task<EvidenceObjectMetadata> GetMetadataAsync(
+    public Task<SealedEvidenceObject> SealAsync(
         string storageObjectReference,
         CancellationToken cancellationToken)
     {
         if (!objects.TryGetValue(storageObjectReference, out var stored))
         {
-            return Task.FromResult(new EvidenceObjectMetadata(
+            return Task.FromResult(new SealedEvidenceObject(
                 Exists: false,
+                StorageObjectReference: storageObjectReference,
+                VersionId: null,
+                EntityTag: null,
                 ContentLength: 0,
                 MediaType: null,
                 TrustedSha256Hash: null));
         }
 
-        return Task.FromResult(new EvidenceObjectMetadata(
+        var versionId = Guid.NewGuid().ToString("N");
+        var entityTag = $"\"{Guid.NewGuid():N}\"";
+        var sealedReference = $"{storageObjectReference}?versionid={versionId}";
+        sealedObjects[sealedReference] = new StoredEvidenceObject(stored.Content.ToArray(), stored.MediaType);
+
+        return Task.FromResult(new SealedEvidenceObject(
             Exists: true,
+            StorageObjectReference: sealedReference,
+            VersionId: versionId,
+            EntityTag: entityTag,
             ContentLength: stored.Content.Length,
             MediaType: stored.MediaType,
             TrustedSha256Hash: null));
@@ -75,7 +90,8 @@ public sealed class DevelopmentEvidenceObjectStore : IEvidenceObjectStore
         string storageObjectReference,
         CancellationToken cancellationToken)
     {
-        if (!objects.TryGetValue(storageObjectReference, out var stored))
+        if (!sealedObjects.TryGetValue(storageObjectReference, out var stored)
+            && !objects.TryGetValue(storageObjectReference, out stored))
         {
             throw new FileNotFoundException("Evidence object was not found.", storageObjectReference);
         }
@@ -89,15 +105,6 @@ public sealed class DevelopmentEvidenceObjectStore : IEvidenceObjectStore
         CancellationToken cancellationToken)
     {
         quarantineReasons[storageObjectReference] = reason;
-        return Task.CompletedTask;
-    }
-
-    public Task RemoveUncommittedAsync(
-        string storageObjectReference,
-        CancellationToken cancellationToken)
-    {
-        objects.TryRemove(storageObjectReference, out _);
-        quarantineReasons.TryRemove(storageObjectReference, out _);
         return Task.CompletedTask;
     }
 

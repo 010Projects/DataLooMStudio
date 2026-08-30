@@ -70,7 +70,7 @@ Quarantine is applied for size mismatch, hash mismatch, malicious scan, suspicio
 
 ## Storage Adapter
 
-`IEvidenceObjectStore` is provider-neutral and supports upload allocation, metadata confirmation, controlled content read, quarantine and removal of uncommitted objects. `AzureEvidenceObjectStore` keeps Azure SDK types and short-lived SAS generation inside infrastructure. `DevelopmentEvidenceObjectStore` models the same semantics for tests without provisioning Azure resources.
+`IEvidenceObjectStore` is provider-neutral and supports create-only upload allocation, immutable content sealing, version-bound controlled reads, and quarantine. `AzureEvidenceObjectStore` keeps Azure SDK types and short-lived create-only user-delegation SAS generation inside infrastructure and binds accepted content to a Blob version plus ETag before hash verification and malware scanning. `DevelopmentEvidenceObjectStore` models the same sealed-version semantics for tests without provisioning Azure resources. Runtime Evidence deletion authority is absent.
 
 ## Upload Authority Semantics
 

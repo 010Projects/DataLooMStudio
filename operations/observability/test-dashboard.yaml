@@ -4,14 +4,14 @@ title: DataLooM Studio Test Operations
 refreshInterval: PT5M
 panels:
   - title: API readiness and availability
-    signals: [readyz_success_ratio, http_5xx_ratio]
+    signals: [dls.api.requests]
   - title: API latency
     signals: [dls.api.request.duration.p50, dls.api.request.duration.p95, dls.api.request.duration.p99]
   - title: Worker dispatch
     signals: [dls.outbox.published, dls.outbox.failed, dls.outbox.backlog]
   - title: Dependency failures
-    signals: [postgresql_health, servicebus_publish_failures, malware_scanner_health, otlp_export_failures]
+    signals: [dls.dependencies.failures, dls.malware.scan.completed, dls.malware.scan.failures]
   - title: Authority and assurance
-    signals: [dls.authorization.denials, dls.audit.persistence.failures, evidence_quarantine_count]
+    signals: [dls.authorization.denials, dls.audit.persistence.failures, dls.evidence.quarantined]
   - title: Startup configuration
     signals: [container_restart_count, production_configuration_failures]

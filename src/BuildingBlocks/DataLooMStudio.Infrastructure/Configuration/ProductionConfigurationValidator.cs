@@ -154,14 +154,27 @@ public static class ProductionConfigurationValidator
         var clientId = configuration["EntraId:ClientId"];
         var audience = configuration["EntraId:Audience"];
 
+        RequireValue(tenantId, "EntraId:TenantId", errors);
+        if (!Guid.TryParse(tenantId, out var parsedTenantId) || parsedTenantId == Guid.Empty)
+        {
+            errors.Add("EntraId:TenantId must be a non-empty tenant GUID in a hardened environment.");
+        }
+
         if (string.IsNullOrWhiteSpace(authority))
         {
             RequireHttpsUrl(instance, "EntraId:Instance", errors);
-            RequireValue(tenantId, "EntraId:TenantId", errors);
+            if (Uri.TryCreate(instance, UriKind.Absolute, out var instanceUri)
+                && (!instanceUri.Host.Equals("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase)
+                    || !instanceUri.IsDefaultPort
+                    || instanceUri.AbsolutePath.Trim('/').Length != 0))
+            {
+                errors.Add("EntraId:Instance must be the approved Microsoft Entra login boundary in a hardened environment.");
+            }
         }
         else
         {
             RequireHttpsUrl(authority, "EntraId:Authority", errors);
+            ValidateTenantSpecificAuthority(authority, tenantId, errors);
         }
 
         if (string.IsNullOrWhiteSpace(clientId) && string.IsNullOrWhiteSpace(audience))
@@ -171,7 +184,65 @@ public static class ProductionConfigurationValidator
 
         RejectPlaceholder(clientId, "EntraId:ClientId", errors);
         RejectPlaceholder(audience, "EntraId:Audience", errors);
-        RequireValue(configuration["EntraId:RequiredScope"], "EntraId:RequiredScope", errors);
+        if (!string.IsNullOrWhiteSpace(clientId)
+            && (!Guid.TryParse(clientId, out var parsedClientId) || parsedClientId == Guid.Empty))
+        {
+            errors.Add("EntraId:ClientId must be a non-empty application GUID in a hardened environment.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(clientId)
+            && !string.IsNullOrWhiteSpace(audience)
+            && !audience.Equals(clientId, StringComparison.OrdinalIgnoreCase)
+            && !audience.Equals($"api://{clientId}", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add("EntraId:Audience must match EntraId:ClientId or its api:// application ID URI in a hardened environment.");
+        }
+
+        var requiredScope = configuration["EntraId:RequiredScope"];
+        RequireValue(requiredScope, "EntraId:RequiredScope", errors);
+        if (!string.IsNullOrWhiteSpace(requiredScope)
+            && (requiredScope.Contains('/', StringComparison.Ordinal)
+                || requiredScope.Any(char.IsWhiteSpace)))
+        {
+            errors.Add("EntraId:RequiredScope must be one canonical delegated scope name, not an audience URI or scope list.");
+        }
+    }
+
+    private static void ValidateTenantSpecificAuthority(
+        string authority,
+        string? tenantId,
+        ICollection<string> errors)
+    {
+        if (!Uri.TryCreate(authority, UriKind.Absolute, out var authorityUri))
+        {
+            return;
+        }
+
+        var segments = authorityUri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var authorityTenant = segments.FirstOrDefault();
+        if (!authorityUri.Host.Equals("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase)
+            || !authorityUri.IsDefaultPort
+            || segments.Length != 2
+            || !segments[1].Equals("v2.0", StringComparison.OrdinalIgnoreCase)
+            || authorityUri.Query.Length > 0
+            || authorityUri.Fragment.Length > 0)
+        {
+            errors.Add("EntraId:Authority must be a tenant-specific https://login.microsoftonline.com/<tenant-guid>/v2.0 issuer in a hardened environment.");
+            return;
+        }
+
+        if (new[] { "common", "organizations", "consumers" }.Contains(authorityTenant, StringComparer.OrdinalIgnoreCase)
+            || !Guid.TryParse(authorityTenant, out var authorityTenantId)
+            || authorityTenantId == Guid.Empty)
+        {
+            errors.Add("EntraId:Authority must not use a multi-tenant alias and must contain a non-empty tenant GUID.");
+            return;
+        }
+
+        if (Guid.TryParse(tenantId, out var configuredTenantId) && authorityTenantId != configuredTenantId)
+        {
+            errors.Add("EntraId:Authority tenant must match EntraId:TenantId.");
+        }
     }
 
     private static void RequireHttpSurface(IConfiguration configuration, ICollection<string> errors)

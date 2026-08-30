@@ -30,6 +30,14 @@ test('web runtime remains non-root and injects only public identity configuratio
   const nginx = await read('../nginx/default.conf.template')
   assert.match(dockerfile, /USER 101/)
   assert.match(template, /DLS_SPA_CLIENT_ID/)
+  assert.match(template, /DLS_ENTRA_TENANT_ID/)
   assert.match(nginx, /proxy_set_header Host \$proxy_host/)
   assert.doesNotMatch(template.toLowerCase(), /secret|password/)
+})
+
+test('browser authority is bound to a tenant-specific Microsoft Entra issuer', async () => {
+  const runtimeConfig = await read('../src/runtimeConfig.ts')
+  assert.match(runtimeConfig, /login\.microsoftonline\.com/)
+  assert.match(runtimeConfig, /configured\.entraTenantId/)
+  assert.match(runtimeConfig, /configured\.entraAuthority !== expectedAuthority/)
 })
