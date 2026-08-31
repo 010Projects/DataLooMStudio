@@ -617,7 +617,13 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
     {
         var rls = new PostgresRlsSessionContext(dbContext, accessor);
         IOutboxWriter outboxWriter = new EfOutboxWriter(dbContext);
-        return new EvidenceRegistrationService(dbContext, accessor, clock, outboxWriter, rls);
+        return new EvidenceRegistrationService(
+            dbContext,
+            accessor,
+            clock,
+            outboxWriter,
+            new TestProductAuthorityService(),
+            rls);
     }
 
     private static EvidenceContentService CreateContentService(
@@ -634,6 +640,7 @@ public sealed class EvidenceReviewDecisionServiceTests(PostgresFixture fixture) 
             clock,
             new EfOutboxWriter(dbContext),
             rls,
+            new TestProductAuthorityService(),
             store,
             scanner);
     }

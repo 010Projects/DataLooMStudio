@@ -3,13 +3,16 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
+using DataLooMStudio.Infrastructure.Observability;
 using DataLooMStudio.Infrastructure.Outbox;
 using DataLooMStudio.Infrastructure.SecurityScanning;
 using DataLooMStudio.Infrastructure.Storage;
 using DataLooMStudio.Modules.Audit;
 using DataLooMStudio.Modules.Evidence;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Lineage;
 using DataLooMStudio.Modules.Workspaces;
+using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.Runtime.Persistence.Security;
 using DataLooMStudio.SharedKernel.Abstractions;
 using DataLooMStudio.SharedKernel.Integrity;
@@ -25,6 +28,7 @@ public sealed class EvidenceContentService(
     IClock clock,
     IOutboxWriter outboxWriter,
     PostgresRlsSessionContext rlsSessionContext,
+    IProductAuthorityService productAuthorityService,
     IEvidenceObjectStore objectStore,
     IEvidenceMalwareScanner malwareScanner) : IEvidenceContentService
 {
@@ -35,7 +39,7 @@ public sealed class EvidenceContentService(
     private const string Active = "Active";
     private const string Expired = "Expired";
     private const string Consumed = "Consumed";
-    private const string Write = "Write";
+    private const string Create = "Create";
     private static readonly Regex IdempotencyRegex = new("^[A-Za-z0-9._:-]{8,128}$", RegexOptions.Compiled);
     private static readonly Regex Sha256Regex = new("^[a-fA-F0-9]{64}$", RegexOptions.Compiled);
 
@@ -57,6 +61,7 @@ public sealed class EvidenceContentService(
             await EnsureWorkspaceActiveAsync(context, cancellationToken);
             var evidence = await LoadEvidenceAsync(request.EvidenceId, cancellationToken);
             var version = await LoadCurrentVersionAsync(evidence, cancellationToken);
+            await EnsureContributionAuthorityAsync(actor, evidence, cancellationToken);
             var idempotencyKey = NormalizeIdempotencyKey(
                 request.IdempotencyKey,
                 $"derived:{Hash($"allocation|{evidence.Id}|{version.Id}")}");
@@ -87,6 +92,7 @@ public sealed class EvidenceContentService(
                     context,
                     existingAllocation,
                     cancellationToken);
+                await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
 
                 return new EvidenceUploadAllocationResult(
@@ -144,7 +150,7 @@ public sealed class EvidenceContentService(
                 StorageObjectReference = storeAuthority.StorageObjectReference,
                 UploadAuthorityHash = Hash(storeAuthority.UploadAuthority),
                 ExpiresAt = expiresAt,
-                PermittedOperation = Write,
+                PermittedOperation = Create,
                 MaxSize = version.DeclaredSize,
                 MediaType = version.MediaType,
                 Status = Active,
@@ -231,17 +237,24 @@ public sealed class EvidenceContentService(
             return ToReceiptResult(loaded.ExistingVerification, idempotentReplay: true);
         }
 
-        var metadata = await objectStore.GetMetadataAsync(request.StorageObjectReference, cancellationToken);
-        if (!metadata.Exists)
+        var sealedObject = await objectStore.SealAsync(request.StorageObjectReference, cancellationToken);
+        if (!sealedObject.Exists)
         {
             throw new EvidenceContentConflictException("Storage object does not exist for the active upload allocation.");
+        }
+
+        if (string.IsNullOrWhiteSpace(sealedObject.VersionId)
+            || string.IsNullOrWhiteSpace(sealedObject.EntityTag)
+            || sealedObject.StorageObjectReference.Equals(request.StorageObjectReference, StringComparison.Ordinal))
+        {
+            throw new EvidenceContentConflictException(
+                "Storage object could not be bound to an immutable Blob version and entity tag.");
         }
 
         var decision = await VerifyContentAsync(
             loaded.Evidence,
             loaded.Version,
-            loaded.Allocation,
-            metadata,
+            sealedObject,
             context,
             cancellationToken);
 
@@ -256,6 +269,7 @@ public sealed class EvidenceContentService(
             var version = await dbContext.EvidenceVersions
                 .SingleOrDefaultAsync(item => item.Id == request.VersionId && item.EvidenceId == evidence.Id, cancellationToken)
                 ?? throw new EvidenceContentForbiddenException("Evidence version is not available within the active workspace context.");
+            await EnsureContributionAuthorityAsync(actor, evidence, cancellationToken);
             var allocation = await dbContext.EvidenceUploadAllocations
                 .SingleOrDefaultAsync(item =>
                     item.Id == loaded.Allocation.Id
@@ -267,6 +281,7 @@ public sealed class EvidenceContentService(
                 .SingleOrDefaultAsync(verification => verification.AllocationId == allocation.Id, cancellationToken);
             if (existingVerification is not null)
             {
+                await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return ToReceiptResult(existingVerification, idempotentReplay: true);
             }
@@ -296,7 +311,7 @@ public sealed class EvidenceContentService(
             evidence.VerificationStatus = decision.LifecycleState == Available
                 ? EvidenceVerificationStatus.Verified
                 : EvidenceVerificationStatus.Rejected;
-            evidence.BlobName = allocation.StorageObjectReference;
+            evidence.BlobName = decision.StorageObjectReference;
             evidence.ContentLength = decision.ActualSize;
             evidence.ConcurrencyToken = Guid.NewGuid();
 
@@ -307,7 +322,9 @@ public sealed class EvidenceContentService(
                 EvidenceId = evidence.Id,
                 VersionId = version.Id,
                 AllocationId = allocation.Id,
-                StorageObjectReference = allocation.StorageObjectReference,
+                StorageObjectReference = decision.StorageObjectReference,
+                StorageVersionId = decision.StorageVersionId,
+                StorageEntityTag = decision.StorageEntityTag,
                 ReceiptIdempotencyKey = idempotencyKey,
                 ReceiptRequestHash = requestHash,
                 DeclaredSize = version.DeclaredSize,
@@ -338,7 +355,8 @@ public sealed class EvidenceContentService(
 
         if (result.LifecycleState == Quarantined)
         {
-            await objectStore.QuarantineAsync(request.StorageObjectReference, result.FailureReason ?? "quarantined", cancellationToken);
+            InfrastructureTelemetry.RecordEvidenceQuarantine(decision.IntegrityOutcome == "Succeeded" ? decision.ScanOutcome : decision.IntegrityOutcome);
+            await objectStore.QuarantineAsync(decision.StorageObjectReference, result.FailureReason ?? "quarantined", cancellationToken);
         }
 
         return result;
@@ -364,6 +382,8 @@ public sealed class EvidenceContentService(
             var version = await dbContext.EvidenceVersions
                 .SingleOrDefaultAsync(item => item.Id == request.VersionId && item.EvidenceId == evidence.Id, cancellationToken)
                 ?? throw new EvidenceContentForbiddenException("Evidence version is not available within the active workspace context.");
+            await EnsureContributionAuthorityAsync(actor, evidence, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
             var allocation = await dbContext.EvidenceUploadAllocations
                 .SingleOrDefaultAsync(item =>
                     item.EvidenceId == evidence.Id
@@ -429,15 +449,14 @@ public sealed class EvidenceContentService(
     private async Task<VerificationDecision> VerifyContentAsync(
         EvidenceRecord evidence,
         EvidenceVersion version,
-        EvidenceUploadAllocation allocation,
-        EvidenceObjectMetadata metadata,
+        SealedEvidenceObject sealedObject,
         RequestContext context,
         CancellationToken cancellationToken)
     {
-        if (metadata.ContentLength != version.DeclaredSize)
+        if (sealedObject.ContentLength != version.DeclaredSize)
         {
             return VerificationDecision.Quarantine(
-                metadata.ContentLength,
+                sealedObject,
                 string.Empty,
                 "SizeMismatch",
                 "NotRun",
@@ -446,15 +465,15 @@ public sealed class EvidenceContentService(
                 "Actual content size does not match the declared Evidence version size.");
         }
 
-        var actualHash = !string.IsNullOrWhiteSpace(metadata.TrustedSha256Hash)
-            && Sha256Regex.IsMatch(metadata.TrustedSha256Hash)
-            ? metadata.TrustedSha256Hash.ToLowerInvariant()
-            : await ComputeSha256Async(allocation.StorageObjectReference, cancellationToken);
+        var actualHash = !string.IsNullOrWhiteSpace(sealedObject.TrustedSha256Hash)
+            && Sha256Regex.IsMatch(sealedObject.TrustedSha256Hash)
+            ? sealedObject.TrustedSha256Hash.ToLowerInvariant()
+            : await ComputeSha256Async(sealedObject.StorageObjectReference, cancellationToken);
 
         if (!actualHash.Equals(version.ContentHash, StringComparison.OrdinalIgnoreCase))
         {
             return VerificationDecision.Quarantine(
-                metadata.ContentLength,
+                sealedObject,
                 actualHash,
                 "HashMismatch",
                 "NotRun",
@@ -469,22 +488,22 @@ public sealed class EvidenceContentService(
                 context.WorkspaceId,
                 evidence.Id,
                 version.Id,
-                allocation.StorageObjectReference,
-                metadata.ContentLength,
+                sealedObject.StorageObjectReference,
+                sealedObject.ContentLength,
                 actualHash,
-                metadata.MediaType),
+                sealedObject.MediaType),
             cancellationToken);
 
         return scan.Outcome switch
         {
             EvidenceMalwareScanOutcome.Clean => VerificationDecision.Available(
-                metadata.ContentLength,
+                sealedObject,
                 actualHash,
                 scan.Outcome.ToString(),
                 scan.ScannerName,
                 scan.ScannerVersion),
             EvidenceMalwareScanOutcome.Malicious or EvidenceMalwareScanOutcome.Suspicious => VerificationDecision.Quarantine(
-                metadata.ContentLength,
+                sealedObject,
                 actualHash,
                 "Succeeded",
                 scan.Outcome.ToString(),
@@ -492,7 +511,7 @@ public sealed class EvidenceContentService(
                 scan.ScannerVersion,
                 scan.Reason ?? $"Scanner returned {scan.Outcome}."),
             _ => VerificationDecision.Quarantine(
-                metadata.ContentLength,
+                sealedObject,
                 actualHash,
                 "Succeeded",
                 scan.Outcome.ToString(),
@@ -620,6 +639,8 @@ public sealed class EvidenceContentService(
                 versionId = version.Id.ToString(),
                 allocationId = allocation.Id,
                 verification.ActualSize,
+                verification.StorageVersionId,
+                verification.StorageEntityTag,
                 storageReferenceHash = Hash(verification.StorageObjectReference)
             });
         AddLineage(context, actor, evidence.LineageId, "ContentReceived", nextLineageVersion++, now, causationId);
@@ -671,6 +692,7 @@ public sealed class EvidenceContentService(
                 {
                     versionId = version.Id.ToString(),
                     allocationId = allocation.Id,
+                    verification.StorageVersionId,
                     verification.ScannerName,
                     verification.ScannerVersion
                 });
@@ -737,7 +759,8 @@ public sealed class EvidenceContentService(
                 aggregateId = evidence.Id.ToString(),
                 tenantId = context.TenantId.ToString(),
                 workspaceId = context.WorkspaceId.ToString(),
-                actualSize = verification.ActualSize
+                actualSize = verification.ActualSize,
+                storageVersionId = verification.StorageVersionId
             },
             cancellationToken);
 
@@ -781,6 +804,30 @@ public sealed class EvidenceContentService(
         return await dbContext.EvidenceRecords
             .SingleOrDefaultAsync(evidence => evidence.Id == evidenceId, cancellationToken)
             ?? throw new EvidenceContentForbiddenException("Evidence is not available within the active workspace context.");
+    }
+
+    private async Task EnsureContributionAuthorityAsync(
+        string actor,
+        EvidenceRecord evidence,
+        CancellationToken cancellationToken)
+    {
+        var authority = await productAuthorityService.EvaluatePermissionAsync(
+            new ProductAuthorityEvaluationRequest(
+                actor,
+                ProductAuthorityPermissions.RegisterEvidence,
+                ProductAuthorityResourceTypes.Evidence,
+                evidence.Id.ToString(),
+                ProductCapability: ProductAuthorityCapabilities.EvidenceContent,
+                Action: ProductAuthorityActions.EvidenceRegister,
+                Classification: evidence.Classification,
+                LifecycleState: evidence.LifecycleState,
+                CausationId: $"evidence-content:{evidence.Id}"),
+            cancellationToken);
+
+        if (!authority.Succeeded)
+        {
+            throw new EvidenceContentForbiddenException("Product authority denied the Evidence content operation.");
+        }
     }
 
     private async Task<EvidenceVersion> LoadCurrentVersionAsync(
@@ -978,6 +1025,9 @@ public sealed class EvidenceContentService(
         EvidenceContentVerification? ExistingVerification);
 
     private sealed record VerificationDecision(
+        string StorageObjectReference,
+        string StorageVersionId,
+        string StorageEntityTag,
         string LifecycleState,
         long ActualSize,
         string ActualSha256Hash,
@@ -988,15 +1038,18 @@ public sealed class EvidenceContentService(
         string? FailureReason)
     {
         public static VerificationDecision Available(
-            long actualSize,
+            SealedEvidenceObject sealedObject,
             string actualSha256Hash,
             string scanOutcome,
             string scannerName,
             string scannerVersion)
         {
             return new VerificationDecision(
+                sealedObject.StorageObjectReference,
+                sealedObject.VersionId!,
+                sealedObject.EntityTag!,
                 EvidenceContentService.Available,
-                actualSize,
+                sealedObject.ContentLength,
                 actualSha256Hash,
                 "Succeeded",
                 scanOutcome,
@@ -1006,7 +1059,7 @@ public sealed class EvidenceContentService(
         }
 
         public static VerificationDecision Quarantine(
-            long actualSize,
+            SealedEvidenceObject sealedObject,
             string actualSha256Hash,
             string integrityOutcome,
             string scanOutcome,
@@ -1015,8 +1068,11 @@ public sealed class EvidenceContentService(
             string failureReason)
         {
             return new VerificationDecision(
+                sealedObject.StorageObjectReference,
+                sealedObject.VersionId!,
+                sealedObject.EntityTag!,
                 EvidenceContentService.Quarantined,
-                actualSize,
+                sealedObject.ContentLength,
                 actualSha256Hash,
                 integrityOutcome,
                 scanOutcome,

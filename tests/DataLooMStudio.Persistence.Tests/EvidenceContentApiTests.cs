@@ -10,6 +10,7 @@ using DataLooMStudio.Infrastructure.SecurityScanning;
 using DataLooMStudio.Infrastructure.Storage;
 using DataLooMStudio.Modules.Tenancy;
 using DataLooMStudio.Modules.Workspaces;
+using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.SharedKernel.Abstractions;
 using DataLooMStudio.SharedKernel.Identity;
 using DataLooMStudio.SharedKernel.RequestContext;
@@ -117,7 +118,8 @@ public sealed class EvidenceContentApiTests(
     private HttpClient CreateClient(
         DevelopmentEvidenceObjectStore store,
         IEvidenceMalwareScanner scanner,
-        IClock? clock = null)
+        IClock? clock = null,
+        IProductAuthorityService? productAuthorityService = null)
     {
         return factory.WithWebHostBuilder(builder =>
         {
@@ -133,8 +135,11 @@ public sealed class EvidenceContentApiTests(
             {
                 services.RemoveAll<IEvidenceObjectStore>();
                 services.RemoveAll<IEvidenceMalwareScanner>();
+                services.RemoveAll<IProductAuthorityService>();
                 services.AddSingleton<IEvidenceObjectStore>(store);
                 services.AddSingleton(scanner);
+                services.AddScoped<IProductAuthorityService>(_ =>
+                    productAuthorityService ?? new TestProductAuthorityService());
                 if (clock is not null)
                 {
                     services.RemoveAll<IClock>();

@@ -1,0 +1,6 @@
+window.__DLS_CONFIG__ = Object.freeze({
+  entraAuthority: "${DLS_ENTRA_AUTHORITY}",
+  entraTenantId: "${DLS_ENTRA_TENANT_ID}",
+  spaClientId: "${DLS_SPA_CLIENT_ID}",
+  apiScope: "${DLS_API_SCOPE}"
+});

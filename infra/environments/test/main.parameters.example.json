@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "dls-test" },
+    "environment": { "value": "test" },
+    "deployMigrationJob": { "value": false },
+    "deployApplications": { "value": false },
+    "migrationVerification": {
+      "value": {
+        "executionResourceId": "",
+        "executionName": "",
+        "status": "",
+        "imageDigest": "",
+        "lastAppliedMigration": "",
+        "evidenceSha256": ""
+      }
+    },
+    "location": { "value": "southafricanorth" },
+    "apiContainerImage": { "value": "dlsregistry.invalid/dataloomstudio-api@sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+    "workerContainerImage": { "value": "dlsregistry.invalid/dataloomstudio-worker@sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+    "migrationContainerImage": { "value": "dlsregistry.invalid/dataloomstudio-migrate@sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+    "webContainerImage": { "value": "dlsregistry.invalid/dataloomstudio-web@sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+    "entraAuthority": { "value": "https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0" },
+    "entraTenantId": { "value": "00000000-0000-0000-0000-000000000000" },
+    "entraClientId": { "value": "00000000-0000-0000-0000-000000000000" },
+    "entraAudience": { "value": "api://00000000-0000-0000-0000-000000000000" },
+    "entraApiScope": { "value": "api://00000000-0000-0000-0000-000000000000/Dls.Access" },
+    "entraSpaClientId": { "value": "00000000-0000-0000-0000-000000000000" },
+    "allowedHosts": { "value": "api.dls-test.invalid" },
+    "allowedOriginsCsv": { "value": "https://dls-test.invalid" },
+    "otelExporterOtlpEndpoint": { "value": "https://otel.dls-test.invalid" },
+    "malwareScannerEndpoint": { "value": "https://scanner.dls-test.invalid" },
+    "malwareScannerAudience": { "value": "api://00000000-0000-0000-0000-000000000000" }
+  }
+}

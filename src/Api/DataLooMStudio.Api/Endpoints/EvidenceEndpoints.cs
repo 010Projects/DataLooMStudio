@@ -11,6 +11,48 @@ public static class EvidenceEndpoints
 
     public static IEndpointRouteBuilder MapEvidenceEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapGet(
+            "/api/v1/workspaces/{workspaceId:guid}/evidence/{evidenceId:guid}",
+            async (
+                Guid workspaceId,
+                Guid evidenceId,
+                IRequestContextAccessor contextAccessor,
+                IEvidenceQueryService queryService,
+                CancellationToken cancellationToken) =>
+            {
+                var context = contextAccessor.Current;
+                if (context is null || context.WorkspaceId.Value != workspaceId)
+                {
+                    return Results.Forbid();
+                }
+
+                try
+                {
+                    var result = await queryService.GetAsync(new EvidenceId(evidenceId), cancellationToken);
+                    return Results.Ok(new EvidenceSummaryApiResponse(
+                        result.EvidenceId.ToString(),
+                        result.VersionId.ToString(),
+                        result.EvidenceType,
+                        result.Classification,
+                        result.LifecycleState,
+                        result.VerificationStatus,
+                        result.OriginalFileName,
+                        result.MediaType,
+                        result.ContentLength,
+                        result.Sha256Hash,
+                        result.CapturedAt,
+                        result.LineageId));
+                }
+                catch (EvidenceQueryForbiddenException)
+                {
+                    return Results.Forbid();
+                }
+            })
+            .RequireAuthorization("WorkspaceScoped")
+            .WithMetadata(RequiresWorkspaceScopeMetadata.Instance)
+            .WithName("GetEvidence")
+            .WithSummary("Retrieve an Evidence summary under Product authority and workspace isolation");
+
         endpoints.MapPost(
             "/api/v1/workspaces/{workspaceId:guid}/evidence",
             async (
@@ -622,6 +664,20 @@ public sealed record EvidenceRegistrationApiRequest(
             idempotencyKey);
     }
 }
+
+public sealed record EvidenceSummaryApiResponse(
+    string EvidenceId,
+    string VersionId,
+    string EvidenceType,
+    string Classification,
+    string LifecycleState,
+    string VerificationStatus,
+    string OriginalFileName,
+    string MediaType,
+    long ContentLength,
+    string Sha256Hash,
+    DateTimeOffset CapturedAt,
+    string LineageId);
 
 public sealed record EvidenceRegistrationApiResponse(
     string EvidenceId,

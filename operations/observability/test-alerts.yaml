@@ -1,0 +1,71 @@
+artifact: DLS-ENG-NONPROD-TEST-ENVIRONMENT-PREPARATION-001
+authority: non-production-test-only
+defaults:
+  evaluationFrequency: PT5M
+  windowSize: PT10M
+  autoMitigate: true
+rules:
+  - name: api-readiness-unavailable
+    severity: 1
+    signal: dls.api.requests
+    filter: http.route == /readyz AND http.status_code >= 500
+    operator: GreaterThan
+    threshold: 0
+  - name: api-server-error-rate
+    severity: 2
+    signal: dls.api.requests
+    filter: http.status_code >= 500
+    operator: GreaterThan
+    threshold: 0.05
+  - name: api-p95-latency
+    severity: 3
+    signal: dls.api.request.duration.p95
+    operator: GreaterThan
+    thresholdMilliseconds: 2000
+  - name: outbox-backlog
+    severity: 2
+    signal: dls.outbox.backlog
+    operator: GreaterThan
+    threshold: 100
+  - name: worker-or-servicebus-failures
+    severity: 2
+    signal: dls.outbox.failed
+    operator: GreaterThan
+    threshold: 5
+  - name: authorization-denial-spike
+    severity: 3
+    signal: dls.authorization.denials
+    operator: GreaterThan
+    threshold: 50
+  - name: malware-scan-failure
+    severity: 2
+    signal: dls.malware.scan.failures
+    operator: GreaterThan
+    threshold: 0
+  - name: evidence-quarantined
+    severity: 2
+    signal: dls.evidence.quarantined
+    operator: GreaterThan
+    threshold: 0
+  - name: database-readiness-failure
+    severity: 1
+    signal: dls.dependencies.failures
+    filter: dependency == postgresql
+    operator: GreaterThan
+    threshold: 0
+  - name: external-dependency-failure
+    severity: 2
+    signal: dls.dependencies.failures
+    filter: dependency IN [blob_storage, service_bus, malware_scanner, malware_scanner_identity]
+    operator: GreaterThan
+    threshold: 0
+  - name: audit-persistence-failure
+    severity: 1
+    signal: dls.audit.persistence.failures
+    operator: GreaterThan
+    threshold: 0
+  - name: application-startup-failure
+    severity: 1
+    logMatch: ProductionConfigurationException OR startup failed
+    operator: GreaterThan
+    threshold: 0

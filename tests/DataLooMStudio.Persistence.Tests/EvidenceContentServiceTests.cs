@@ -39,7 +39,7 @@ public sealed class EvidenceContentServiceTests(PostgresFixture fixture) : IClas
 
         Assert.False(result.IdempotentReplay);
         Assert.Equal("UploadAllocated", evidence.LifecycleState);
-        Assert.Equal("Write", result.PermittedOperation);
+        Assert.Equal("Create", result.PermittedOperation);
         Assert.True(result.ExpiresAt > scenario.Clock.UtcNow);
         Assert.StartsWith("dls-dev-upload:", result.UploadAuthority, StringComparison.Ordinal);
         Assert.Equal(result.StorageObjectReference, allocation.StorageObjectReference);
@@ -101,6 +101,11 @@ public sealed class EvidenceContentServiceTests(PostgresFixture fixture) : IClas
         Assert.Equal(EvidenceVerificationStatus.Verified, evidence.VerificationStatus);
         Assert.Equal(content.Length, verification.ActualSize);
         Assert.Equal(Sha256(content), verification.ActualSha256Hash);
+        Assert.Contains("?versionid=", verification.StorageObjectReference, StringComparison.Ordinal);
+        Assert.False(string.IsNullOrWhiteSpace(verification.StorageVersionId));
+        Assert.False(string.IsNullOrWhiteSpace(verification.StorageEntityTag));
+        Assert.Equal(verification.StorageObjectReference, evidence.BlobName);
+        Assert.Equal(verification.StorageObjectReference, scanner.LastRequest?.StorageObjectReference);
         Assert.Contains("Evidence.ContentReceived", auditActions);
         Assert.Contains("Evidence.IntegrityVerificationSucceeded", auditActions);
         Assert.Contains("Evidence.ScanRequested", auditActions);
@@ -109,6 +114,47 @@ public sealed class EvidenceContentServiceTests(PostgresFixture fixture) : IClas
         Assert.DoesNotContain("clean evidence payload", auditMetadata, StringComparison.Ordinal);
         Assert.Equal(1, scanner.CallCount);
         Assert.Equal(4, await dbContext.OutboxMessages.CountAsync());
+    }
+
+    [Fact]
+    public async Task Receipt_and_scanner_remain_bound_to_sealed_bytes_during_concurrent_overwrite()
+    {
+        var original = Encoding.UTF8.GetBytes("sealed evidence bytes");
+        var mutation = Encoding.UTF8.GetBytes("mutated evidence byte");
+        var scenario = await CreateRegisteredEvidenceAsync("sealed-race", original);
+        await using var dbContext = fixture.CreateDbContext(scenario.Accessor);
+        var store = new DevelopmentEvidenceObjectStore();
+        var service = CreateContentService(
+            dbContext,
+            scenario.Accessor,
+            store,
+            new MutatingMalwareScanner(store, mutation));
+        var allocation = await service.AllocateUploadAsync(
+            new EvidenceUploadAllocationRequest(scenario.EvidenceId, "sealed-race-allocation-001"),
+            CancellationToken.None);
+        await store.StoreObjectAsync(allocation.StorageObjectReference, original, "text/plain", CancellationToken.None);
+
+        var result = await service.ConfirmContentReceivedAsync(
+            new EvidenceContentReceiptRequest(
+                scenario.EvidenceId,
+                scenario.VersionId,
+                allocation.StorageObjectReference,
+                "sealed-race-receipt-001"),
+            CancellationToken.None);
+
+        var verification = await dbContext.EvidenceContentVerifications.SingleAsync();
+        await using var sealedStream = await store.OpenReadAsync(verification.StorageObjectReference, CancellationToken.None);
+        using var sealedBuffer = new MemoryStream();
+        await sealedStream.CopyToAsync(sealedBuffer);
+        await using var currentStream = await store.OpenReadAsync(allocation.StorageObjectReference, CancellationToken.None);
+        using var currentBuffer = new MemoryStream();
+        await currentStream.CopyToAsync(currentBuffer);
+
+        Assert.Equal("Available", result.LifecycleState);
+        Assert.Equal(original, sealedBuffer.ToArray());
+        Assert.Equal(mutation, currentBuffer.ToArray());
+        Assert.Equal(Sha256(original), verification.ActualSha256Hash);
+        Assert.Contains("?versionid=", verification.StorageObjectReference, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -427,7 +473,13 @@ public sealed class EvidenceContentServiceTests(PostgresFixture fixture) : IClas
     {
         var rls = new PostgresRlsSessionContext(dbContext, accessor);
         IOutboxWriter outboxWriter = new EfOutboxWriter(dbContext);
-        return new EvidenceRegistrationService(dbContext, accessor, clock, outboxWriter, rls);
+        return new EvidenceRegistrationService(
+            dbContext,
+            accessor,
+            clock,
+            outboxWriter,
+            new TestProductAuthorityService(),
+            rls);
     }
 
     private static EvidenceContentService CreateContentService(
@@ -445,6 +497,7 @@ public sealed class EvidenceContentServiceTests(PostgresFixture fixture) : IClas
             clock ?? new MutableClock(DateTimeOffset.UtcNow),
             outboxWriter ?? new EfOutboxWriter(dbContext),
             rls,
+            new TestProductAuthorityService(),
             store,
             scanner);
     }
@@ -476,16 +529,38 @@ public sealed class EvidenceContentServiceTests(PostgresFixture fixture) : IClas
     {
         public int CallCount { get; private set; }
 
+        public EvidenceMalwareScanRequest? LastRequest { get; private set; }
+
         public Task<EvidenceMalwareScanResult> ScanAsync(
             EvidenceMalwareScanRequest request,
             CancellationToken cancellationToken)
         {
             CallCount++;
+            LastRequest = request;
             return Task.FromResult(new EvidenceMalwareScanResult(
                 outcome,
                 "fake-test-scanner",
                 "1.0",
                 outcome == EvidenceMalwareScanOutcome.Clean ? null : $"Synthetic {outcome} result."));
+        }
+    }
+
+    private sealed class MutatingMalwareScanner(
+        DevelopmentEvidenceObjectStore store,
+        byte[] mutation) : IEvidenceMalwareScanner
+    {
+        public async Task<EvidenceMalwareScanResult> ScanAsync(
+            EvidenceMalwareScanRequest request,
+            CancellationToken cancellationToken)
+        {
+            var mutableReference = request.StorageObjectReference.Split('?', 2)[0];
+            await store.StoreObjectAsync(mutableReference, mutation, request.MediaType ?? "application/octet-stream", cancellationToken);
+            await using var sealedContent = await store.OpenReadAsync(request.StorageObjectReference, cancellationToken);
+            var sealedHash = Convert.ToHexString(await SHA256.HashDataAsync(sealedContent, cancellationToken)).ToLowerInvariant();
+
+            return sealedHash.Equals(request.Sha256Hash, StringComparison.Ordinal)
+                ? new(EvidenceMalwareScanOutcome.Clean, "race-test-scanner", "1.0", null)
+                : new(EvidenceMalwareScanOutcome.Failed, "race-test-scanner", "1.0", "Sealed content hash changed during scan.");
         }
     }
 

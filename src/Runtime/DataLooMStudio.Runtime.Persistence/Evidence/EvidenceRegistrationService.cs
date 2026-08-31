@@ -6,8 +6,10 @@ using System.Text.RegularExpressions;
 using DataLooMStudio.Infrastructure.Outbox;
 using DataLooMStudio.Modules.Audit;
 using DataLooMStudio.Modules.Evidence;
+using DataLooMStudio.Modules.IdentityAccess;
 using DataLooMStudio.Modules.Lineage;
 using DataLooMStudio.Modules.Workspaces;
+using DataLooMStudio.Runtime.Persistence.IdentityAccess;
 using DataLooMStudio.Runtime.Persistence.Security;
 using DataLooMStudio.SharedKernel.Abstractions;
 using DataLooMStudio.SharedKernel.Integrity;
@@ -22,6 +24,7 @@ public sealed class EvidenceRegistrationService(
     IRequestContextAccessor requestContextAccessor,
     IClock clock,
     IOutboxWriter outboxWriter,
+    IProductAuthorityService productAuthorityService,
     PostgresRlsSessionContext rlsSessionContext) : IEvidenceRegistrationService
 {
     private static readonly Regex Sha256Regex = new("^[a-fA-F0-9]{64}$", RegexOptions.Compiled);
@@ -83,6 +86,23 @@ public sealed class EvidenceRegistrationService(
                 throw new EvidenceRegistrationForbiddenException("Workspace is not available within the active tenant context.");
             }
 
+            var authority = await productAuthorityService.EvaluatePermissionAsync(
+                new ProductAuthorityEvaluationRequest(
+                    actor,
+                    ProductAuthorityPermissions.RegisterEvidence,
+                    ProductAuthorityResourceTypes.Evidence,
+                    ProductAuthorityResourceIds.Any,
+                    ProductCapability: ProductAuthorityCapabilities.EvidenceRegistration,
+                    Action: ProductAuthorityActions.EvidenceRegister,
+                    Classification: request.Classification,
+                    LifecycleState: "Registered",
+                    CausationId: causationId),
+                cancellationToken);
+            if (!authority.Succeeded)
+            {
+                throw new EvidenceRegistrationForbiddenException("Product authority denied Evidence registration.");
+            }
+
             var existingRegistration = await dbContext.EvidenceRecords
                 .Where(evidence => evidence.RegistrationIdempotencyKey == idempotencyKey)
                 .SingleOrDefaultAsync(cancellationToken);
@@ -96,6 +116,7 @@ public sealed class EvidenceRegistrationService(
                 var existingVersion = await dbContext.EvidenceVersions
                     .SingleAsync(version => version.Id == existingRegistration.CurrentVersionId, cancellationToken);
 
+                await dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new EvidenceRegistrationResult(
                     existingRegistration.Id,

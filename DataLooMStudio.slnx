@@ -55,5 +55,6 @@
     <Project Path="tests/DataLooMStudio.Api.Tests/DataLooMStudio.Api.Tests.csproj" />
     <Project Path="tests/DataLooMStudio.Architecture.Tests/DataLooMStudio.Architecture.Tests.csproj" />
     <Project Path="tests/DataLooMStudio.Persistence.Tests/DataLooMStudio.Persistence.Tests.csproj" />
+    <Project Path="tests/DataLooMStudio.Worker.Tests/DataLooMStudio.Worker.Tests.csproj" />
   </Folder>
 </Solution>

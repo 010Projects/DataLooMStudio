@@ -8,6 +8,19 @@
     "environment": {
       "value": "dev"
     },
+    "deployMigrationJob": {
+      "value": false
+    },
+    "migrationVerification": {
+      "value": {
+        "executionResourceId": "",
+        "executionName": "",
+        "status": "",
+        "imageDigest": "",
+        "lastAppliedMigration": "",
+        "evidenceSha256": ""
+      }
+    },
     "postgresAdministratorLogin": {
       "value": "dlsadmin"
     },
@@ -23,7 +36,13 @@
     "workerContainerImage": {
       "value": "ghcr.io/010projects/dataloomstudio-worker:placeholder"
     },
+    "migrationContainerImage": {
+      "value": "ghcr.io/010projects/dataloomstudio-migrate:placeholder"
+    },
     "entraAuthority": {
+      "value": ""
+    },
+    "entraTenantId": {
       "value": ""
     },
     "entraClientId": {

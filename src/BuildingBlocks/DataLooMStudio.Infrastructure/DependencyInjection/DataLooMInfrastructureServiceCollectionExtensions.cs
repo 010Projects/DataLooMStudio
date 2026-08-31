@@ -3,6 +3,7 @@ using Azure.Identity;
 
 using DataLooMStudio.Infrastructure.Clock;
 using DataLooMStudio.Infrastructure.Configuration;
+using DataLooMStudio.Infrastructure.Database;
 using DataLooMStudio.Infrastructure.Outbox;
 using DataLooMStudio.Infrastructure.RequestContext;
 using DataLooMStudio.Infrastructure.Secrets;
@@ -28,11 +29,26 @@ public static class DataLooMInfrastructureServiceCollectionExtensions
         services.TryAddSingleton<IClock, SystemClock>();
         services.TryAddScoped<IRequestContextAccessor, RequestContextAccessor>();
         services.TryAddSingleton<TokenCredential, DefaultAzureCredential>();
+        services.TryAddSingleton<IDatabaseAccessTokenProvider, AzurePostgreSqlAccessTokenProvider>();
 
         services.TryAddSingleton<IOutboxPublisher, ServiceBusOutboxPublisher>();
         services.TryAddSingleton<IEvidenceObjectStore, AzureEvidenceObjectStore>();
         services.TryAddSingleton<IEvidenceDisposalObjectStore, DisabledEvidenceDisposalObjectStore>();
-        services.TryAddSingleton<IEvidenceMalwareScanner, UnavailableEvidenceMalwareScanner>();
+        if (Uri.TryCreate(
+                configuration["DataLooM:MalwareScannerEndpoint"],
+                UriKind.Absolute,
+                out var malwareScannerEndpoint))
+        {
+            services.AddHttpClient<IEvidenceMalwareScanner, ManagedIdentityEvidenceMalwareScanner>(client =>
+            {
+                client.BaseAddress = malwareScannerEndpoint;
+                client.Timeout = Timeout.InfiniteTimeSpan;
+            });
+        }
+        else
+        {
+            services.TryAddSingleton<IEvidenceMalwareScanner, UnavailableEvidenceMalwareScanner>();
+        }
         services.TryAddSingleton<ISecretResolver, KeyVaultSecretResolver>();
 
         return services;

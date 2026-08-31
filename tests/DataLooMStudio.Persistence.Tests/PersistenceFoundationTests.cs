@@ -1,5 +1,6 @@
 using DataLooMStudio.Dls.Migrate;
 using DataLooMStudio.Infrastructure.Clock;
+using DataLooMStudio.Infrastructure.Database;
 using DataLooMStudio.Infrastructure.Outbox;
 using DataLooMStudio.Infrastructure.RequestContext;
 using DataLooMStudio.Modules.Audit;
@@ -14,6 +15,7 @@ using DataLooMStudio.SharedKernel.Identity;
 using DataLooMStudio.SharedKernel.RequestContext;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 using Npgsql;
 
@@ -54,6 +56,224 @@ public sealed class PersistenceFoundationTests(PostgresFixture fixture) : IClass
 
         Assert.False(result.Succeeded);
         Assert.NotNull(result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Worker_outbox_functions_are_execute_only_scope_preserving_and_lease_safe()
+    {
+        var tenantId = TenantId.New();
+        var workspaceId = WorkspaceId.New();
+        var message = new OutboxMessage
+        {
+            TenantId = tenantId,
+            WorkspaceId = workspaceId,
+            OwningModule = "Evidence",
+            MessageType = "SyntheticScopePreservation",
+            PayloadJson = "{\"synthetic\":true}",
+            CorrelationId = $"corr-{Guid.NewGuid():N}",
+            OccurredAt = DateTimeOffset.UnixEpoch,
+            AvailableAt = DateTimeOffset.UnixEpoch
+        };
+        await using (var dbContext = fixture.CreateDbContext(CreateRequestContext(tenantId, workspaceId)))
+        {
+            dbContext.OutboxMessages.Add(message);
+            await dbContext.SaveChangesAsync();
+        }
+
+        var apiRole = $"dls_api_test_{Guid.NewGuid():N}"[..32];
+        var workerRole = $"dls_worker_test_{Guid.NewGuid():N}"[..32];
+        var quotedApiRole = new NpgsqlCommandBuilder().QuoteIdentifier(apiRole);
+        var quotedWorkerRole = new NpgsqlCommandBuilder().QuoteIdentifier(workerRole);
+        await using (var admin = new NpgsqlConnection(fixture.AdminConnectionString))
+        {
+            await admin.OpenAsync();
+            await using var createRoles = admin.CreateCommand();
+            createRoles.CommandText = $"""
+                create role {quotedApiRole} login password 'postgres';
+                create role {quotedWorkerRole} login password 'postgres';
+                """;
+            await createRoles.ExecuteNonQueryAsync();
+        }
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DataLooM"] = fixture.AdminConnectionString,
+                ["DataLooM:DatabaseRoles:ApiName"] = apiRole,
+                ["DataLooM:DatabaseRoles:ApiObjectId"] = Guid.NewGuid().ToString("D"),
+                ["DataLooM:DatabaseRoles:WorkerName"] = workerRole,
+                ["DataLooM:DatabaseRoles:WorkerObjectId"] = Guid.NewGuid().ToString("D")
+            })
+            .Build();
+        await new RuntimeDatabaseRoleBootstrapper(configuration, new UnexpectedDatabaseTokenProvider())
+            .ApplyGrantsAsync(CancellationToken.None);
+
+        var workerConnectionString = new NpgsqlConnectionStringBuilder(fixture.AdminConnectionString)
+        {
+            Username = workerRole,
+            Password = "postgres"
+        }.ConnectionString;
+        await using var dataSource = NpgsqlDataSource.Create(workerConnectionString);
+        var store = new PostgresOutboxDispatchStore(dataSource);
+
+        var tableDenied = await Assert.ThrowsAsync<PostgresException>(async () =>
+        {
+            await using var connection = await dataSource.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand("select count(*) from foundation.outbox_messages;", connection);
+            await command.ExecuteScalarAsync();
+        });
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, tableDenied.SqlState);
+
+        var staleLease = Guid.NewGuid();
+        var firstClaim = await store.ClaimAsync(1, staleLease, DateTimeOffset.UtcNow.AddSeconds(-1), CancellationToken.None);
+        var currentLease = Guid.NewGuid();
+        var reclaimed = await store.ClaimAsync(1, currentLease, DateTimeOffset.UtcNow.AddMinutes(2), CancellationToken.None);
+
+        Assert.Single(firstClaim);
+        Assert.Single(reclaimed);
+        Assert.Equal(message.Id, reclaimed[0].Id);
+        Assert.Equal(tenantId, reclaimed[0].TenantId);
+        Assert.Equal(workspaceId, reclaimed[0].WorkspaceId);
+        Assert.Equal(2, reclaimed[0].Attempts);
+        Assert.False(await store.CompleteAsync(message.Id, staleLease, DateTimeOffset.UtcNow, CancellationToken.None));
+        Assert.True(await store.CompleteAsync(message.Id, currentLease, DateTimeOffset.UtcNow, CancellationToken.None));
+
+        await using var verification = fixture.CreateDbContext(CreateRequestContext(tenantId, workspaceId));
+        Assert.Equal(OutboxMessageStatus.Published, (await verification.OutboxMessages.SingleAsync(item => item.Id == message.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Api_role_is_table_specific_non_destructive_and_immutable_evidence_is_database_enforced()
+    {
+        var apiRole = $"dls_api_least_{Guid.NewGuid():N}"[..32];
+        var workerRole = $"dls_worker_least_{Guid.NewGuid():N}"[..32];
+        var quotedApiRole = new NpgsqlCommandBuilder().QuoteIdentifier(apiRole);
+        var quotedWorkerRole = new NpgsqlCommandBuilder().QuoteIdentifier(workerRole);
+        await using (var admin = new NpgsqlConnection(fixture.AdminConnectionString))
+        {
+            await admin.OpenAsync();
+            await using var createRoles = admin.CreateCommand();
+            createRoles.CommandText = $"""
+                create role {quotedApiRole} login password 'postgres';
+                create role {quotedWorkerRole} login password 'postgres';
+                """;
+            await createRoles.ExecuteNonQueryAsync();
+        }
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DataLooM"] = fixture.AdminConnectionString,
+                ["DataLooM:DatabaseRoles:ApiName"] = apiRole,
+                ["DataLooM:DatabaseRoles:ApiObjectId"] = Guid.NewGuid().ToString("D"),
+                ["DataLooM:DatabaseRoles:WorkerName"] = workerRole,
+                ["DataLooM:DatabaseRoles:WorkerObjectId"] = Guid.NewGuid().ToString("D")
+            })
+            .Build();
+        await new RuntimeDatabaseRoleBootstrapper(configuration, new UnexpectedDatabaseTokenProvider())
+            .ApplyGrantsAsync(CancellationToken.None);
+
+        Assert.True(await HasTablePrivilegeAsync(apiRole, "evidence.evidence_records", "SELECT"));
+        Assert.True(await HasTablePrivilegeAsync(apiRole, "evidence.evidence_records", "INSERT"));
+        Assert.True(await HasTablePrivilegeAsync(apiRole, "evidence.evidence_records", "UPDATE"));
+        Assert.False(await HasTablePrivilegeAsync(apiRole, "evidence.evidence_records", "DELETE"));
+        Assert.True(await HasTablePrivilegeAsync(apiRole, "evidence.evidence_versions", "INSERT"));
+        Assert.False(await HasTablePrivilegeAsync(apiRole, "evidence.evidence_versions", "UPDATE"));
+        Assert.False(await HasTablePrivilegeAsync(apiRole, "audit_lineage.audit_entries", "UPDATE"));
+        Assert.False(await HasTablePrivilegeAsync(apiRole, "audit_lineage.audit_entries", "DELETE"));
+        Assert.False(await HasTablePrivilegeAsync(apiRole, "retention.disposal_records", "DELETE"));
+        Assert.False(await RoleBypassesRlsAsync(apiRole));
+        Assert.True(await TriggerExistsAsync("retention", "disposal_records", "protect_disposal_request_evidence"));
+        Assert.True(await TriggerExistsAsync("identity_access", "product_permission_assignments", "protect_permission_assignment_evidence"));
+
+        var futureTable = $"future_security_{Guid.NewGuid():N}";
+        var quotedFutureTable = new NpgsqlCommandBuilder().QuoteIdentifier(futureTable);
+        await using (var admin = new NpgsqlConnection(fixture.AdminConnectionString))
+        {
+            await admin.OpenAsync();
+            await using var createFutureTable = admin.CreateCommand();
+            createFutureTable.CommandText = $"create table evidence.{quotedFutureTable} (id uuid primary key);";
+            await createFutureTable.ExecuteNonQueryAsync();
+        }
+
+        try
+        {
+            Assert.False(await HasTablePrivilegeAsync(apiRole, $"evidence.{futureTable}", "SELECT"));
+            Assert.False(await HasTablePrivilegeAsync(apiRole, $"evidence.{futureTable}", "INSERT"));
+        }
+        finally
+        {
+            await using var admin = new NpgsqlConnection(fixture.AdminConnectionString);
+            await admin.OpenAsync();
+            await using var dropFutureTable = admin.CreateCommand();
+            dropFutureTable.CommandText = $"drop table evidence.{quotedFutureTable};";
+            await dropFutureTable.ExecuteNonQueryAsync();
+        }
+
+        var tenantId = TenantId.New();
+        var workspaceId = WorkspaceId.New();
+        var accessor = CreateRequestContext(tenantId, workspaceId);
+        await SeedTenantAndWorkspaceAsync(tenantId, workspaceId, accessor);
+        await using var dbContext = fixture.CreateDbContext(accessor);
+        var registration = await CreateEvidenceRegistrationService(dbContext, accessor).RegisterInitialVersionAsync(
+            new EvidenceRegistrationRequest(
+                "Document",
+                "Internal",
+                "immutable.txt",
+                "text/plain",
+                9,
+                new string('a', 64),
+                "registered/immutable",
+                "default",
+                $"immutable-{Guid.NewGuid():N}"),
+            CancellationToken.None);
+
+        await using var triggerConnection = new NpgsqlConnection(fixture.AdminConnectionString);
+        await triggerConnection.OpenAsync();
+        var actorId = Guid.NewGuid();
+        await using (var insertActor = triggerConnection.CreateCommand())
+        {
+            insertActor.CommandText =
+                """
+                insert into identity_access.product_actors
+                    ("Id", "TenantId", "WorkspaceId", "Subject", "DisplayName", "ActorType", "State", "AuthorityVersion", "AuthorityChangedAt", "CreatedBy", "CreatedAt", "ConcurrencyToken")
+                values
+                    (@id, @tenantId, @workspaceId, @subject, 'Immutable Actor', 'Human', 'Active', 1, now(), 'test', now(), @token);
+                """;
+            insertActor.Parameters.AddWithValue("id", actorId);
+            insertActor.Parameters.AddWithValue("tenantId", tenantId.Value);
+            insertActor.Parameters.AddWithValue("workspaceId", workspaceId.Value);
+            insertActor.Parameters.AddWithValue("subject", $"immutable-actor-{actorId:N}");
+            insertActor.Parameters.AddWithValue("token", Guid.NewGuid());
+            await insertActor.ExecuteNonQueryAsync();
+        }
+
+        var authorityEvidenceUpdateDenied = await Assert.ThrowsAsync<PostgresException>(async () =>
+        {
+            await using var update = triggerConnection.CreateCommand();
+            update.CommandText = "update identity_access.product_actors set \"Subject\" = 'substituted-actor' where \"Id\" = @id;";
+            update.Parameters.AddWithValue("id", actorId);
+            await update.ExecuteNonQueryAsync();
+        });
+        Assert.Equal(PostgresErrorCodes.ObjectNotInPrerequisiteState, authorityEvidenceUpdateDenied.SqlState);
+
+        var updateDenied = await Assert.ThrowsAsync<PostgresException>(async () =>
+        {
+            await using var update = triggerConnection.CreateCommand();
+            update.CommandText = "update evidence.evidence_versions set \"OriginalFileName\" = 'tampered.txt' where \"Id\" = @id;";
+            update.Parameters.AddWithValue("id", registration.VersionId.Value);
+            await update.ExecuteNonQueryAsync();
+        });
+        Assert.Equal(PostgresErrorCodes.ObjectNotInPrerequisiteState, updateDenied.SqlState);
+
+        var deleteDenied = await Assert.ThrowsAsync<PostgresException>(async () =>
+        {
+            await using var delete = triggerConnection.CreateCommand();
+            delete.CommandText = "delete from audit_lineage.audit_entries where \"TargetId\" = @targetId;";
+            delete.Parameters.AddWithValue("targetId", registration.EvidenceId.ToString());
+            await delete.ExecuteNonQueryAsync();
+        });
+        Assert.Equal(PostgresErrorCodes.ObjectNotInPrerequisiteState, deleteDenied.SqlState);
     }
 
     [Fact]
@@ -334,7 +554,19 @@ public sealed class PersistenceFoundationTests(PostgresFixture fixture) : IClass
     {
         var rls = new PostgresRlsSessionContext(dbContext, accessor);
         IOutboxWriter outboxWriter = new EfOutboxWriter(dbContext);
-        return new EvidenceRegistrationService(dbContext, accessor, new SystemClock(), outboxWriter, rls);
+        return new EvidenceRegistrationService(
+            dbContext,
+            accessor,
+            new SystemClock(),
+            outboxWriter,
+            new TestProductAuthorityService(),
+            rls);
+    }
+
+    private sealed class UnexpectedDatabaseTokenProvider : IDatabaseAccessTokenProvider
+    {
+        public ValueTask<string> GetTokenAsync(CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Passwordless token acquisition is not expected in the local PostgreSQL fixture.");
     }
 
     private async Task SeedTenantAndWorkspaceAsync(TenantId tenantId, WorkspaceId workspaceId, RequestContextAccessor accessor)
@@ -472,6 +704,51 @@ public sealed class PersistenceFoundationTests(PostgresFixture fixture) : IClass
         command.Parameters.AddWithValue("workspaceId", workspaceId.ToString("D"));
 
         await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task<bool> HasTablePrivilegeAsync(string role, string table, string privilege)
+    {
+        await using var connection = new NpgsqlConnection(fixture.AdminConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "select has_table_privilege(@role, @table, @privilege);";
+        command.Parameters.AddWithValue("role", role);
+        command.Parameters.AddWithValue("table", table);
+        command.Parameters.AddWithValue("privilege", privilege);
+        return (bool)(await command.ExecuteScalarAsync() ?? false);
+    }
+
+    private async Task<bool> RoleBypassesRlsAsync(string role)
+    {
+        await using var connection = new NpgsqlConnection(fixture.AdminConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "select rolbypassrls from pg_roles where rolname = @role;";
+        command.Parameters.AddWithValue("role", role);
+        return (bool)(await command.ExecuteScalarAsync() ?? false);
+    }
+
+    private async Task<bool> TriggerExistsAsync(string schema, string table, string trigger)
+    {
+        await using var connection = new NpgsqlConnection(fixture.AdminConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            select exists (
+                select 1
+                from pg_trigger trigger_definition
+                join pg_class table_definition on table_definition.oid = trigger_definition.tgrelid
+                join pg_namespace schema_definition on schema_definition.oid = table_definition.relnamespace
+                where not trigger_definition.tgisinternal
+                    and schema_definition.nspname = @schema
+                    and table_definition.relname = @table
+                    and trigger_definition.tgname = @trigger);
+            """;
+        command.Parameters.AddWithValue("schema", schema);
+        command.Parameters.AddWithValue("table", table);
+        command.Parameters.AddWithValue("trigger", trigger);
+        return (bool)(await command.ExecuteScalarAsync() ?? false);
     }
 
     private static async Task<IReadOnlyList<string>> QueryStringsAsync(string connectionString, string sql)

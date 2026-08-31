@@ -385,6 +385,8 @@ public sealed class DataLooMDbContext(
         contentVerification.Property(verification => verification.EvidenceId).HasConversion(EvidenceIdConverter).ValueGeneratedNever();
         contentVerification.Property(verification => verification.VersionId).HasConversion(EvidenceVersionIdConverter).ValueGeneratedNever();
         contentVerification.Property(verification => verification.StorageObjectReference).HasMaxLength(1024).IsRequired();
+        contentVerification.Property(verification => verification.StorageVersionId).HasMaxLength(128).IsRequired();
+        contentVerification.Property(verification => verification.StorageEntityTag).HasMaxLength(128).IsRequired();
         contentVerification.Property(verification => verification.ReceiptIdempotencyKey).HasMaxLength(128).IsRequired();
         contentVerification.Property(verification => verification.ReceiptRequestHash).HasMaxLength(64).IsRequired();
         contentVerification.Property(verification => verification.ExpectedSha256Hash).HasMaxLength(64).IsRequired();
@@ -670,6 +672,7 @@ public sealed class DataLooMDbContext(
         builder.Property(message => message.PayloadJson).HasColumnType("jsonb").IsRequired();
         builder.Property(message => message.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(message => message.Status).HasConversion<string>().HasMaxLength(32);
+        builder.Property(message => message.LastError).HasMaxLength(1024);
         ConfigureWorkspaceScope(builder);
         builder.HasIndex(message => new { message.TenantId, message.WorkspaceId, message.Status, message.AvailableAt });
         builder.HasIndex(message => new { message.OwningModule, message.MessageType });

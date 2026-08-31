@@ -14,8 +14,9 @@ public sealed class MigrationRunner(DataLooMDbContext dbContext)
             var pendingMigrationCount = pendingMigrations.Count();
 
             await dbContext.Database.MigrateAsync(cancellationToken);
+            var appliedMigrations = await dbContext.Database.GetAppliedMigrationsAsync(cancellationToken);
 
-            return MigrationRunResult.Success(pendingMigrationCount);
+            return MigrationRunResult.Success(pendingMigrationCount, appliedMigrations.LastOrDefault());
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

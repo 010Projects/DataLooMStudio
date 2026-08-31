@@ -9,7 +9,7 @@ public interface IEvidenceObjectStore
         EvidenceUploadAuthorityRequest request,
         CancellationToken cancellationToken);
 
-    Task<EvidenceObjectMetadata> GetMetadataAsync(
+    Task<SealedEvidenceObject> SealAsync(
         string storageObjectReference,
         CancellationToken cancellationToken);
 
@@ -22,9 +22,6 @@ public interface IEvidenceObjectStore
         string reason,
         CancellationToken cancellationToken);
 
-    Task RemoveUncommittedAsync(
-        string storageObjectReference,
-        CancellationToken cancellationToken);
 }
 
 public sealed record EvidenceUploadAuthorityRequest(
@@ -45,8 +42,11 @@ public sealed record EvidenceUploadAuthority(
     long MaxSize,
     string MediaType);
 
-public sealed record EvidenceObjectMetadata(
+public sealed record SealedEvidenceObject(
     bool Exists,
+    string StorageObjectReference,
+    string? VersionId,
+    string? EntityTag,
     long ContentLength,
     string? MediaType,
     string? TrustedSha256Hash);
